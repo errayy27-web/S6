@@ -538,6 +538,7 @@ class _OilHomeState extends State<OilHome> {
    shortcut('Stok',Icons.inventory_2,()=>setState(()=>page=2)),shortcut('Siparişler',Icons.shopping_cart,()=>setState(()=>page=3)),
    shortcut('Stok Sayım',Icons.fact_check,()=>setState(()=>page=7)),shortcut('Tedarikçiler',Icons.business,()=>setState(()=>page=3)),
    shortcut('Barkod Hataları',Icons.report_problem_outlined,()=>setState(()=>page=8)),shortcut('Raporlar',Icons.analytics,()=>setState(()=>page=5)),
+    shortcut('Vardiya',Icons.account_balance_wallet,()=>setState(()=>page=9)),
    shortcut('PC Güncelle',Icons.computer,syncAllManually),shortcut('Supabase Güncelle',Icons.cloud_sync,syncCloudManually)
   ]);
  }),icon:Icons.bolt)]);
