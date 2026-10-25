@@ -248,7 +248,6 @@ class _ShiftPageState extends State<ShiftPage> {
   final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:Text(old==null?'Vardiya Devir':'Vardiya Devir Düzelt'),content:Column(mainAxisSize:MainAxisSize.min,children:[
    TextField(controller:name,decoration:const InputDecoration(labelText:'Çalışan adı')),
    TextField(controller:delivered,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Teslim edilen nakit KM')),
-   Text('Kasada Biriken: ${km(accumulatedSum(shift))}'),
    TextField(controller:closeTime,decoration:const InputDecoration(labelText:'Kapanış saati SS:DD:SN')),
   ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))]));
   if(ok!=true)return;
