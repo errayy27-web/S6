@@ -5,7 +5,9 @@ import 'package:http/http.dart' as http;
 typedef ShiftRequest = Future<http.Response?> Function(String method,String path,{Object? body,String? prefer});
 class ShiftPage extends StatefulWidget {
  final ShiftRequest request;
- const ShiftPage({super.key,required this.request});
+ final Map<String,dynamic> kasa;
+ final String kasaDate;
+ const ShiftPage({super.key,required this.request,required this.kasa,required this.kasaDate});
  @override State<ShiftPage> createState()=>_ShiftPageState();
 }
 class _ShiftPageState extends State<ShiftPage> {
@@ -13,7 +15,8 @@ class _ShiftPageState extends State<ShiftPage> {
  List<Map<String,dynamic>> transactions=[],options=[],banks=[],employees=[],handoffs=[],openings=[];
  Map<String,dynamic> daily={};
  String get dateKey=>date.toIso8601String().substring(0,10);
- num number(dynamic v)=>num.tryParse('$v')??0;
+ num number(dynamic v)=>num.tryParse('$v'.replaceAll(',','.'))??0;
+ String km(dynamic v)=>'${number(v).toStringAsFixed(2).replaceAll('.',',')} KM';
  List<Map<String,dynamic>> parse(String s)=>(jsonDecode(s) as List).map((e)=>Map<String,dynamic>.from(e as Map)).toList();
  @override void initState(){super.initState();refresh();timer=Timer.periodic(const Duration(seconds:3),(_)=>refresh());}
  @override void dispose(){timer?.cancel();super.dispose();}
@@ -71,12 +74,12 @@ class _ShiftPageState extends State<ShiftPage> {
   await save('PATCH','ssoil_shift_transactions',{'deleted_at':DateTime.now().toUtc().toIso8601String()},filter:'?id=eq.'+row['id'].toString()+'&revision=eq.'+row['revision'].toString());
  }
  Future<void> editNumber(String title,String table,String filter,Map<String,dynamic> data,String field,dynamic previous)async{
-  final c=TextEditingController(text:previous?.toString()??'0');
+  final c=TextEditingController(text:number(previous??0).toStringAsFixed(2).replaceAll('.',','));
   final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:Text(title),content:TextField(controller:c,keyboardType:const TextInputType.numberWithOptions(decimal:true)),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))]));
-  if(ok!=true)return;final value=num.tryParse(c.text.replaceAll(',','.'));if(value==null)return;
-  data[field]=value;
+  if(ok!=true)return;final value=num.tryParse(c.text.replaceAll(',','.'));if(value==null||value<0)return;
+  data[field]=double.parse(value.toStringAsFixed(2));
   final exists=previous!=null;
-  await save(exists?'PATCH':'POST',table,exists?{field:value}:[data],filter:exists?filter:'');
+  await save(exists?'PATCH':'POST',table,exists?{field:data[field]}:[data],filter:exists?filter:'');
  }
  num sum(String kind)=>transactions.where((v)=>v['kind']==kind&&v['shift_number']==shift).fold<num>(0,(a,v)=>a+(num.tryParse(v['amount'].toString())??0));
  Future<void> handoff()async{
@@ -95,18 +98,36 @@ class _ShiftPageState extends State<ShiftPage> {
    Row(children:[Expanded(child:OutlinedButton.icon(icon:const Icon(Icons.calendar_month),label:Text(dateKey),onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null){setState(()=>date=d);refresh();}})),IconButton(onPressed:refresh,icon:const Icon(Icons.refresh))]),
    if(error.isNotEmpty)Text(error,style:const TextStyle(color:Colors.red)),
    const Text('Supabase ile her 3 saniyede senkronizasyon',style:TextStyle(fontSize:12)),
+   if(widget.kasaDate==dateKey)...[
+    Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     const Text('1. BÖLÜM — GÜNLÜK KASA',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+     const SizedBox(height:8),
+     for(final item in <MapEntry<String,dynamic>>[
+      MapEntry('Nakit Yakıt + Market',number(widget.kasa['cash_fuel'])+number(widget.kasa['cash_market'])),
+      MapEntry('Nakit Dopuna (MTEL + AERO)',number(widget.kasa['mtel_dopuna'])+number(widget.kasa['aero_dopuna'])),
+      MapEntry('Nakit (Dopuna dahil)',widget.kasa['cash']),
+      MapEntry('Kredi Kartı',widget.kasa['card']),
+      MapEntry('Genel Toplam',number(widget.kasa['cash'])+number(widget.kasa['card'])),
+      MapEntry('Yakıt Satışı',widget.kasa['fuel_sales']),
+      MapEntry('Market Satışı',widget.kasa['market_sales']),
+      MapEntry('MTEL Dopuna',widget.kasa['mtel_dopuna']),
+      MapEntry('AERO Dopuna',widget.kasa['aero_dopuna']),
+     ]) ListTile(dense:true,title:Text(item.key),trailing:Text(km(item.value))),
+    ]))),
+   ]else const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('Bu tarihin Kasa verisini görmek için Kasa ekranından aynı tarihi seçin.'))),
+   const Padding(padding:EdgeInsets.all(12),child:Text('2. BÖLÜM — VARDİYA İŞLEMLERİ',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold))),
    Wrap(spacing:8,children:[for(var i=1;i<=3;i++)ChoiceChip(label:Text('$i. Vardiya'),selected:shift==i,onSelected:(_)=>setState(()=>shift=i))]),
    Wrap(spacing:8,runSpacing:8,children:[for(final k in kinds.keys)OutlinedButton(onPressed:()=>editTransaction(k),child:Text('+ '+kinds[k]!))]),
    Card(child:Column(children:[
-    ListTile(title:const Text('Nakit Gün Başı Devir'),subtitle:Text((daily['cash_carryover']??0).toString()+' KM'),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:()=>editNumber('Nakit devir','ssoil_shift_daily','?business_date=eq.'+dateKey+'&revision=eq.'+(daily['revision']??'').toString(),{'business_date':dateKey},'cash_carryover',daily['cash_carryover']))),
-    for(final bank in banks)ListTile(title:Text(bank['name'].toString()),subtitle:Text('Açılış bakiyesi'),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:(){final rows=openings.where((v)=>v['bank_id']==bank['id']).toList();editNumber('Banka açılış','ssoil_shift_bank_opening','?business_date=eq.'+dateKey+'&bank_id=eq.'+bank['id'].toString()+'&revision=eq.'+(rows.isEmpty?'':rows.first['revision'].toString()),{'business_date':dateKey,'bank_id':bank['id']},'opening_balance',rows.isEmpty?null:rows.first['opening_balance']);})),
+    ListTile(title:const Text('Nakit Gün Başı Devir'),subtitle:Text(km(daily['cash_carryover'])),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:()=>editNumber('Nakit devir','ssoil_shift_daily','?business_date=eq.'+dateKey+'&revision=eq.'+(daily['revision']??'').toString(),{'business_date':dateKey},'cash_carryover',daily['cash_carryover']))),
+    for(final bank in banks)ListTile(title:Text(bank['name'].toString()),subtitle:Text('Açılış bakiyesi: '+km(openings.where((v)=>v['bank_id']==bank['id']).isEmpty?0:openings.firstWhere((v)=>v['bank_id']==bank['id'])['opening_balance'])),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:(){final rows=openings.where((v)=>v['bank_id']==bank['id']).toList();editNumber('Banka açılış','ssoil_shift_bank_opening','?business_date=eq.'+dateKey+'&bank_id=eq.'+bank['id'].toString()+'&revision=eq.'+(rows.isEmpty?'':rows.first['revision'].toString()),{'business_date':dateKey,'bank_id':bank['id']},'opening_balance',rows.isEmpty?null:rows.first['opening_balance']);})),
    ])),
    Card(child:Column(children:[
-    for(final k in kinds.keys)ListTile(dense:true,title:Text(kinds[k]!),trailing:Text(sum(k).toStringAsFixed(2)+' KM')),
+    for(final k in kinds.keys)ListTile(dense:true,title:Text(kinds[k]!),trailing:Text(km(sum(k)))),
     FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:const Text('Vardiya Devri Kaydet')),
-    for(final h in handoffs)ListTile(title:Text(h['shift_number'].toString()+'. Vardiya - '+h['employee_name'].toString()),subtitle:Text('Durum: '+h['status'].toString()+' / Teslim: '+(h['delivered_cash']??'-').toString())),
+    for(final h in handoffs)ListTile(title:Text(h['shift_number'].toString()+'. Vardiya - '+h['employee_name'].toString()),subtitle:Text('Durum: '+h['status'].toString()+' / Teslim: '+km(h['delivered_cash']))),
    ])),
-   for(final x in transactions.where((v)=>v['shift_number']==shift))Card(child:ListTile(title:Text((kinds[x['kind']]??'İşlem')+' - '+x['amount'].toString()+' KM'),subtitle:Text(x['first_value'].toString()+' / '+x['second_value'].toString()+'\n'+x['description'].toString()),isThreeLine:true,trailing:Wrap(children:[IconButton(icon:const Icon(Icons.edit),onPressed:()=>editTransaction(x['kind'].toString(),x)),IconButton(icon:const Icon(Icons.delete_outline),onPressed:()=>deleteTransaction(x))]))),
+   for(final x in transactions.where((v)=>v['shift_number']==shift))Card(child:ListTile(title:Text((kinds[x['kind']]??'İşlem')+' - '+km(x['amount'])),subtitle:Text(x['first_value'].toString()+' / '+x['second_value'].toString()+'\n'+x['description'].toString()),isThreeLine:true,trailing:Wrap(children:[IconButton(icon:const Icon(Icons.edit),onPressed:()=>editTransaction(x['kind'].toString(),x)),IconButton(icon:const Icon(Icons.delete_outline),onPressed:()=>deleteTransaction(x))]))),
   ]);
  }
 }
