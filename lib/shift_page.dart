@@ -36,7 +36,7 @@ class _ShiftPageState extends State<ShiftPage> {
   setState((){
    List<Map<String,dynamic>> rows(String k)=>((d[k] as List?)??[]).map((x)=>Map<String,dynamic>.from(x as Map)).toList();
    transactions=rows('transactions');options=rows('options');banks=rows('banks');employees=rows('employees');handoffs=rows('handoffs');openings=rows('openings');
-   daily=Map<String,dynamic>.from(d['daily'] as Map? ??{});
+   daily=Map<String,dynamic>.from((d['daily'] as Map?)??{});
   });
  }
  Future<void> persistLocal()async{
