@@ -268,6 +268,16 @@ class _ShiftPageState extends State<ShiftPage> {
    if(old['status']=='pending_delivery')await nextDayCarry(old,value);
   }
  }
+ Future<void> deleteHandoff(Map<String,dynamic> row)async{
+  final confirm=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+   title:const Text('Vardiya kaydını sil'),
+   content:Text('${row['shift_number']}. vardiya kaydı silinsin mi?'),
+   actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),
+    TextButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Sil'))]));
+  if(confirm!=true)return;
+  await save('DELETE','ssoil_shift_handoffs',{},
+   filter:'?id=eq.${row['id']}&revision=eq.${row['revision']}');
+ }
  num total(String kind)=>transactions.where((v)=>v['kind']==kind).fold<num>(0,(a,v)=>a+number(v['amount']));
  num bankTotal(String kind,String id)=>transactions.where((v)=>v['kind']==kind&&v['bank_id'].toString()==id).fold<num>(0,(a,v)=>a+number(v['amount']));
  Widget line(String title,dynamic amount,{String? kind}){
@@ -352,7 +362,16 @@ class _ShiftPageState extends State<ShiftPage> {
    ],
    line('Kredi Kartı',widget.kasa['card']),
    FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:Text(saved==null?'Vardiya Devri Kaydet':'Vardiya Devrini Düzelt')),
-   for(final h in handoffs)ListTile(title:Text('${h['shift_number']}. Vardiya - ${h['employee_name']}'),subtitle:Text('Devir: ${km(h['delivered_cash'])} / Beklenen: ${km(h['expected_cash'])}')),
+   for(final h in handoffs)ListTile(
+   title:Text('${h['shift_number']}. Vardiya - ${h['employee_name']}'),
+   subtitle:Text('Devir: ${h['delivered_cash']==null?'Henüz girilmedi':km(h['delivered_cash'])} / Beklenen: ${km(h['expected_cash'])}'),
+   onTap:(){setState(()=>shift=number(h['shift_number']).toInt());handoff();},
+   trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
+    IconButton(tooltip:'Düzenle',icon:const Icon(Icons.edit_outlined),
+     onPressed:(){setState(()=>shift=number(h['shift_number']).toInt());handoff();}),
+    IconButton(tooltip:'Sil',icon:const Icon(Icons.delete_outline),
+     onPressed:()=>deleteHandoff(h))
+   ])),
   ]);
  }
  @override Widget build(BuildContext context){
