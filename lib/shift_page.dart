@@ -8,7 +8,8 @@ class ShiftPage extends StatefulWidget {
  final ShiftRequest request;
  final Map<String,dynamic> kasa;
  final String kasaDate;
- const ShiftPage({super.key,required this.request,required this.kasa,required this.kasaDate});
+ final Map<String,dynamic> kasaArchive;
+ const ShiftPage({super.key,required this.request,required this.kasa,required this.kasaDate,required this.kasaArchive});
  @override State<ShiftPage> createState()=>_ShiftPageState();
 }
 class _ShiftPageState extends State<ShiftPage> {
@@ -64,6 +65,55 @@ class _ShiftPageState extends State<ShiftPage> {
   if(r==null||r.statusCode!=200)throw Exception(r?.body??'Bağlantı yok');
   return parse(r.body);
  }
+ bool autoCloseRunning=false;
+ String dateOnly(DateTime d)=>d.toIso8601String().substring(0,10);
+ Future<void> autoCloseThirdShift()async{
+  if(autoCloseRunning||busy||offline||pendingWrites.isNotEmpty)return;
+  final now=DateTime.now();
+  if(dateKey!=dateOnly(now))return;
+  final yesterday=dateOnly(now.subtract(const Duration(days:1)));
+  final raw=widget.kasaArchive[yesterday];
+  if(raw is! Map)return;
+  final kasa=Map<String,dynamic>.from(raw);
+  if(kasa['cash']==null||kasa['card']==null||kasa['cash_fuel']==null||
+     kasa['cash_market']==null||kasa['mtel_dopuna']==null||kasa['aero_dopuna']==null)return;
+  autoCloseRunning=true;
+  try{
+   final found=await fetch('ssoil_shift_handoffs','business_date=eq.$yesterday&shift_number=eq.3');
+   if(found.isNotEmpty)return;
+   final dailyRows=await fetch('ssoil_shift_daily','business_date=eq.$yesterday');
+   final tx=await fetch('ssoil_shift_transactions','business_date=eq.$yesterday&deleted_at=is.null');
+   num delta=0;
+   for(final t in tx){
+    if(t['kind']=='cash_collection')delta+=number(t['amount']);
+    if(t['kind']=='cash_expense')delta-=number(t['amount']);
+   }
+   final carry=dailyRows.isEmpty?0:number(dailyRows.first['cash_carryover']);
+   final expected=carry+number(kasa['cash'])+delta;
+   final closeTime=DateTime(now.year,now.month,now.day).toUtc().toIso8601String();
+   final record={'business_date':yesterday,'shift_number':3,
+    'employee_name':'3. Vardiya','closed_at':closeTime,
+    'expected_cash':expected,'delivered_cash':null,'status':'pending_delivery',
+    'snapshot':{'source':'daily_kasa_archive','date':yesterday,
+      'cash':kasa['cash'],'card':kasa['card'],'cash_fuel':kasa['cash_fuel'],
+      'cash_market':kasa['cash_market'],'mtel_dopuna':kasa['mtel_dopuna'],
+      'aero_dopuna':kasa['aero_dopuna'],'fuel_sales':kasa['fuel_sales'],
+      'market_sales':kasa['market_sales'],'delivered_pending':true}};
+   await save('POST','ssoil_shift_handoffs',[record]);
+  }catch(_){}
+  finally{autoCloseRunning=false;}
+ }
+ Future<void> nextDayCarry(Map<String,dynamic> old,num delivered)async{
+  final now=DateTime.now();
+  final yesterday=dateOnly(now.subtract(const Duration(days:1)));
+  if('${old['business_date']}'!=yesterday||number(old['shift_number'])!=3)return;
+  final today=dateOnly(now);
+  final rows=await fetch('ssoil_shift_daily','business_date=eq.$today');
+  final amount=double.parse(delivered.toStringAsFixed(2));
+  if(rows.isEmpty)await save('POST','ssoil_shift_daily',[{'business_date':today,'cash_carryover':amount}]);
+  else await save('PATCH','ssoil_shift_daily',{'cash_carryover':amount},
+    filter:'?business_date=eq.$today&revision=eq.${rows.first['revision']}');
+ }
  Future<void> refresh()async{
   if(busy||!mounted)return;busy=true;
   try{
@@ -82,6 +132,7 @@ class _ShiftPageState extends State<ShiftPage> {
    await persistLocal();
   }catch(e){if(mounted)setState((){error='Çevrimdışı: yerel kayıtlar gösteriliyor';offline=true;});}
   finally{busy=false;}
+  if(mounted&&dateKey==dateOnly(DateTime.now()))Future.microtask(autoCloseThirdShift);
  }
  Future<void> save(String method,String table,Object data,{String filter=''})async{
   if(busy)return;busy=true;
@@ -190,7 +241,7 @@ class _ShiftPageState extends State<ShiftPage> {
  Future<void> handoff()async{
   final old=handoffFor(shift);
   final name=TextEditingController(text:old?['employee_name']?.toString()??'');
-  final delivered=TextEditingController(text:old==null?'':(number(old['delivered_cash'])-accumulatedSum(shift)).toStringAsFixed(2).replaceAll('.',','));
+  final delivered=TextEditingController(text:old==null||old['delivered_cash']==null?'':(number(old['delivered_cash'])-accumulatedSum(shift)).toStringAsFixed(2).replaceAll('.',','));
   final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:Text(old==null?'Vardiya Devir':'Vardiya Devir Düzelt'),content:Column(mainAxisSize:MainAxisSize.min,children:[
    TextField(controller:name,decoration:const InputDecoration(labelText:'Çalışan adı')),
    TextField(controller:delivered,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Teslim edilen nakit KM')),
@@ -200,10 +251,13 @@ class _ShiftPageState extends State<ShiftPage> {
   final value=num.tryParse(delivered.text.replaceAll(',','.'));
   if(value==null||value<0||name.text.trim().isEmpty)return;
   final combined=value+accumulatedSum(shift);
-  final expected=shiftExpected(shift);
+  final expected=old==null?shiftExpected(shift):number(old['expected_cash']);
   final data={'business_date':dateKey,'shift_number':shift,'employee_name':name.text.trim(),'status':'closed','closed_at':DateTime.now().toUtc().toIso8601String(),'expected_cash':expected,'delivered_cash':combined,'snapshot':{'cash_sales':currentCashSales(),'dopuna':currentDopuna(),'cash_collection':sum('cash_collection'),'cash_expense':sum('cash_expense'),'bank_collection':sum('bank_collection'),'bank_expense':sum('bank_expense')}};
   if(old==null){await save('POST','ssoil_shift_handoffs',[data]);}
-  else{await save('PATCH','ssoil_shift_handoffs',data,filter:'?id=eq.'+old['id'].toString()+'&revision=eq.'+old['revision'].toString());}
+  else{if(old['status']=='pending_delivery')data['status']='closed';
+   await save('PATCH','ssoil_shift_handoffs',data,filter:'?id=eq.'+old['id'].toString()+'&revision=eq.'+old['revision'].toString());
+   if(old['status']=='pending_delivery')await nextDayCarry(old,value);
+  }
  }
  num total(String kind)=>transactions.where((v)=>v['kind']==kind).fold<num>(0,(a,v)=>a+number(v['amount']));
  num bankTotal(String kind,String id)=>transactions.where((v)=>v['kind']==kind&&v['bank_id'].toString()==id).fold<num>(0,(a,v)=>a+number(v['amount']));
