@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 typedef ShiftRequest = Future<http.Response?> Function(String method,String path,{Object? body,String? prefer});
 class ShiftPage extends StatefulWidget {
  final ShiftRequest request;
@@ -11,15 +12,51 @@ class ShiftPage extends StatefulWidget {
  @override State<ShiftPage> createState()=>_ShiftPageState();
 }
 class _ShiftPageState extends State<ShiftPage> {
- Timer? timer; DateTime date=DateTime.now(); int shift=1; bool busy=false; String error='';
+ Timer? timer; DateTime date=DateTime.now(); int shift=1; int section=0; String? detailKind; bool busy=false; String error=''; bool offline=false; DateTime? lastSync; List<Map<String,dynamic>> pendingWrites=[]; Map<String,dynamic> localHistory={};
  List<Map<String,dynamic>> transactions=[],options=[],banks=[],employees=[],handoffs=[],openings=[];
  Map<String,dynamic> daily={};
  String get dateKey=>date.toIso8601String().substring(0,10);
  num number(dynamic v)=>num.tryParse('$v'.replaceAll(',','.'))??0;
  String km(dynamic v)=>'${number(v).toStringAsFixed(2).replaceAll('.',',')} KM';
  List<Map<String,dynamic>> parse(String s)=>(jsonDecode(s) as List).map((e)=>Map<String,dynamic>.from(e as Map)).toList();
- @override void initState(){super.initState();refresh();timer=Timer.periodic(const Duration(seconds:3),(_)=>refresh());}
+ @override void initState(){super.initState();loadLocal();timer=Timer.periodic(const Duration(seconds:3),(_)=>refresh());}
  @override void dispose(){timer?.cancel();super.dispose();}
+ Future<void> loadLocal()async{
+  final p=await SharedPreferences.getInstance();
+  try{
+   localHistory=Map<String,dynamic>.from(jsonDecode(p.getString('ssoil_shift_cache_v2')??'{}'));
+   pendingWrites=(jsonDecode(p.getString('ssoil_shift_pending_v2')??'[]') as List).map((x)=>Map<String,dynamic>.from(x)).toList();
+   restoreLocal();
+  }catch(_){}
+  await refresh();
+ }
+ void restoreLocal(){
+  final d=localHistory[dateKey];if(d is! Map)return;
+  if(!mounted)return;
+  setState((){
+   List<Map<String,dynamic>> rows(String k)=>((d[k] as List?)??[]).map((x)=>Map<String,dynamic>.from(x as Map)).toList();
+   transactions=rows('transactions');options=rows('options');banks=rows('banks');employees=rows('employees');handoffs=rows('handoffs');openings=rows('openings');
+   daily=Map<String,dynamic>.from(d['daily'] as Map? ??{});
+  });
+ }
+ Future<void> persistLocal()async{
+  localHistory[dateKey]={'transactions':transactions,'options':options,'banks':banks,'employees':employees,'handoffs':handoffs,'openings':openings,'daily':daily};
+  final p=await SharedPreferences.getInstance();
+  await p.setString('ssoil_shift_cache_v2',jsonEncode(localHistory));
+  await p.setString('ssoil_shift_pending_v2',jsonEncode(pendingWrites));
+ }
+ Future<void> flushPending()async{
+  if(pendingWrites.isEmpty)return;
+  for(final op in List<Map<String,dynamic>>.from(pendingWrites)){
+   try{
+    final r=await widget.request(op['method'].toString(),op['table'].toString()+op['filter'].toString(),body:op['data'],prefer:'return=representation');
+    if(r==null||r.statusCode<200||r.statusCode>=300||r.body.trim()=='[]')break;
+    pendingWrites.remove(op);
+    final p=await SharedPreferences.getInstance();
+    await p.setString('ssoil_shift_pending_v2',jsonEncode(pendingWrites));
+   }catch(_){break;}
+  }
+ }
  Future<List<Map<String,dynamic>>> fetch(String table,String filter)async{
   final r=await widget.request('GET',table+'?select=*&'+filter);
   if(r==null||r.statusCode!=200)throw Exception(r?.body??'Bağlantı yok');
@@ -28,6 +65,8 @@ class _ShiftPageState extends State<ShiftPage> {
  Future<void> refresh()async{
   if(busy||!mounted)return;busy=true;
   try{
+   await flushPending();
+   if(pendingWrites.isNotEmpty){if(mounted)setState(()=>offline=true);return;}
    final v=await Future.wait([
     fetch('ssoil_shift_transactions','business_date=eq.'+dateKey+'&deleted_at=is.null&order=created_at.desc'),
     fetch('ssoil_shift_options','deleted_at=is.null&order=sort_order.asc'),
@@ -37,18 +76,21 @@ class _ShiftPageState extends State<ShiftPage> {
     fetch('ssoil_shift_daily','business_date=eq.'+dateKey),
     fetch('ssoil_shift_bank_opening','business_date=eq.'+dateKey)
    ]);
-   if(mounted)setState((){transactions=v[0];options=v[1];banks=v[2];employees=v[3];handoffs=v[4];daily=v[5].isEmpty?{}:v[5].first;openings=v[6];error='';});
-  }catch(e){if(mounted)setState(()=>error=e.toString());}
+   if(mounted)setState((){transactions=v[0];options=v[1];banks=v[2];employees=v[3];handoffs=v[4];daily=v[5].isEmpty?{}:v[5].first;openings=v[6];error='';offline=false;lastSync=DateTime.now();});
+   await persistLocal();
+  }catch(e){if(mounted)setState((){error='Çevrimdışı: yerel kayıtlar gösteriliyor';offline=true;});}
   finally{busy=false;}
  }
  Future<void> save(String method,String table,Object data,{String filter=''})async{
   if(busy)return;busy=true;
+  final op=<String,dynamic>{'method':method,'table':table,'data':data,'filter':filter};
   try{
    final r=await widget.request(method,table+filter,body:data,prefer:'return=representation');
-   if(r==null||r.statusCode<200||r.statusCode>=300)throw Exception(r?.body??'Bağlantı yok');
-   if((method=='PATCH'||method=='POST')&&r.body.trim()=='[]')throw Exception('Kayıt güncellenmedi. Yetki veya sürüm uyuşmazlığı.');
-  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Supabase: '+e.toString())));}
-  finally{busy=false;await refresh();}
+   if(r==null||r.statusCode<200||r.statusCode>=300||r.body.trim()=='[]')throw Exception(r?.body??'Bağlantı yok');
+  }catch(e){
+   pendingWrites.add(op);
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İşlem çevrimdışı kuyruğa alındı. Bağlanınca gönderilecek.')));
+  }finally{busy=false;await persistLocal();await refresh();}
  }
  List<String> labels(String code)=>options.where((x)=>x['list_code']==code).map((x)=>x['label'].toString()).toList();
  Future<void> editTransaction(String kind,[Map<String,dynamic>? old])async{
@@ -87,51 +129,92 @@ class _ShiftPageState extends State<ShiftPage> {
   final name=TextEditingController(),delivered=TextEditingController();
   final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Vardiya Devir'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:name,decoration:const InputDecoration(labelText:'Çalışan adı')),TextField(controller:delivered,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Teslim nakit KM'))]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))]));
   if(ok!=true)return;final value=num.tryParse(delivered.text.replaceAll(',','.'));if(value==null||name.text.trim().isEmpty)return;
-  final expected=(num.tryParse((daily['cash_carryover']??0).toString())??0)+sum('cash_collection')-sum('cash_expense');
-  final data={'business_date':dateKey,'shift_number':shift,'employee_name':name.text.trim(),'status':'closed','closed_at':DateTime.now().toUtc().toIso8601String(),'expected_cash':expected,'delivered_cash':value,'difference':value-expected,'snapshot':{'cash_collection':sum('cash_collection'),'cash_expense':sum('cash_expense'),'bank_collection':sum('bank_collection'),'bank_expense':sum('bank_expense')}};
+  final expected=number(daily['cash_carryover'])+number(widget.kasa['cash'])+sum('cash_collection')-sum('cash_expense');
+  final data={'business_date':dateKey,'shift_number':shift,'employee_name':name.text.trim(),'status':'closed','closed_at':DateTime.now().toUtc().toIso8601String(),'expected_cash':expected,'delivered_cash':value,'snapshot':{'cash_collection':sum('cash_collection'),'cash_expense':sum('cash_expense'),'bank_collection':sum('bank_collection'),'bank_expense':sum('bank_expense')}};
   final previous=handoffs.where((h)=>h['shift_number']==shift).toList();
   if(previous.isEmpty){await save('POST','ssoil_shift_handoffs',[data]);}
   else{await save('PATCH','ssoil_shift_handoffs',data,filter:'?id=eq.'+previous.first['id'].toString()+'&revision=eq.'+previous.first['revision'].toString());}
  }
+ num total(String kind)=>transactions.where((v)=>v['kind']==kind).fold<num>(0,(a,v)=>a+number(v['amount']));
+ num bankTotal(String kind,String id)=>transactions.where((v)=>v['kind']==kind&&v['bank_id'].toString()==id).fold<num>(0,(a,v)=>a+number(v['amount']));
+ Widget line(String title,dynamic amount,{String? kind}){
+  return ListTile(dense:true,title:Text(title),trailing:Row(mainAxisSize:MainAxisSize.min,children:[
+   Text(km(amount)),if(kind!=null)TextButton(onPressed:()=>setState(()=>detailKind=kind),child:const Text('Göster'))
+  ]));
+ }
+ Widget detail(){
+  const names={'cash_expense':'Nakit Harcamalar','bank_expense':'Banka Harcamaları','cash_collection':'Nakit Tahsilatlar','bank_collection':'Banka Tahsilatları'};
+  final rows=transactions.where((x)=>x['kind']==detailKind&&(section!=2||x['shift_number']==shift)).toList();
+  return Column(children:[
+   ListTile(title:Text(names[detailKind]??''),trailing:IconButton(icon:const Icon(Icons.close),onPressed:()=>setState(()=>detailKind=null))),
+   FilledButton.icon(onPressed:()=>editTransaction(detailKind!),icon:const Icon(Icons.add),label:const Text('Yeni Ekle')),
+   for(final x in rows)Card(child:ListTile(title:Text(km(x['amount'])),subtitle:Text('${x['description']} / ${x['first_value']} / ${x['second_value']}'),trailing:Wrap(children:[
+    IconButton(icon:const Icon(Icons.edit),onPressed:()=>editTransaction(detailKind!,x)),
+    IconButton(icon:const Icon(Icons.delete_outline),onPressed:()=>deleteTransaction(x))
+   ]))),
+  ]);
+ }
+ Widget bankRows()=>Card(child:Column(children:[
+  const ListTile(title:Text('BANKALAR — Açılış Bakiyeleri',style:TextStyle(fontWeight:FontWeight.bold))),
+  for(final bank in banks)Builder(builder:(ctx){
+   final rows=openings.where((v)=>v['bank_id']==bank['id']).toList();
+   final opening=rows.isEmpty?null:rows.first['opening_balance'];
+   final id=bank['id'].toString();
+   return Column(children:[
+    ListTile(title:Text(bank['name'].toString()),subtitle:Text('Açılış: ${km(opening)} • Güncel: ${km(number(opening)+bankTotal('bank_collection',id)-bankTotal('bank_expense',id))}'),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:()=>editNumber('Banka açılış','ssoil_shift_bank_opening','?business_date=eq.$dateKey&bank_id=eq.$id',{'business_date':dateKey,'bank_id':id},'opening_balance',opening))),
+    line('Banka tahsilatları',bankTotal('bank_collection',id),kind:'bank_collection'),
+    line('Banka harcamaları',bankTotal('bank_expense',id),kind:'bank_expense'),
+   ]);
+  })
+ ]));
+ Widget summary()=>Column(children:[
+  Card(child:Column(children:[
+   const ListTile(title:Text('GÜNLÜK KASA ÖZETİ',style:TextStyle(fontWeight:FontWeight.bold))),
+   ListTile(title:const Text('Gün başı nakit devir'),subtitle:Text(km(daily['cash_carryover'])),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:()=>editNumber('Nakit devir','ssoil_shift_daily','?business_date=eq.$dateKey',{'business_date':dateKey},'cash_carryover',daily['cash_carryover']))),
+   line('Nakit yakıt',widget.kasa['cash_fuel']),
+   line('Nakit market',widget.kasa['cash_market']),
+   line('MTEL',widget.kasa['mtel_dopuna']),
+   line('AERO',widget.kasa['aero_dopuna']),
+   line('Nakit tahsilatlar',total('cash_collection'),kind:'cash_collection'),
+   line('TOPLAM NAKİT',number(daily['cash_carryover'])+number(widget.kasa['cash'])+total('cash_collection')),
+   line('Nakit harcamalar',total('cash_expense'),kind:'cash_expense'),
+   Row(children:[
+    Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(children:[const Text('Olması Gereken Nakit'),Text(km(number(daily['cash_carryover'])+number(widget.kasa['cash'])+total('cash_collection')-total('cash_expense')),style:const TextStyle(fontWeight:FontWeight.bold))])))),
+    Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(children:[const Text('Kredi Kartı'),Text(km(widget.kasa['card']),style:const TextStyle(fontWeight:FontWeight.bold))]))))
+   ]),
+  ])),
+  bankRows(),
+  const Card(child:ListTile(title:Text('Gün Sonu Tutarları'),subtitle:Text('Nakit, kredi kartı ve banka gün sonu kayıtları ayrıca eklenecek.'))),
+ ]);
+ Widget handoffPage()=>Column(children:[
+  Wrap(spacing:8,children:[for(var i=1;i<=3;i++)ChoiceChip(label:Text('$i. Vardiya'),selected:shift==i,onSelected:(_)=>setState(()=>shift=i))]),
+  line('Nakit tahsilatlar',sum('cash_collection'),kind:'cash_collection'),
+  line('Nakit harcamalar',sum('cash_expense'),kind:'cash_expense'),
+  line('Nakit yakıt + market',number(widget.kasa['cash_fuel'])+number(widget.kasa['cash_market'])),
+  line('MTEL + AERO',number(widget.kasa['mtel_dopuna'])+number(widget.kasa['aero_dopuna'])),
+  line('Kredi Kartı',widget.kasa['card']),
+  FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:const Text('Vardiya Devri Kaydet')),
+  for(final h in handoffs)ListTile(title:Text('${h['shift_number']}. Vardiya - ${h['employee_name']}'),subtitle:Text('Teslim: ${km(h['delivered_cash'])} / Beklenen: ${km(h['expected_cash'])}')),
+ ]);
  @override Widget build(BuildContext context){
-  const kinds={'cash_expense':'Nakit Harcama','bank_expense':'Banka Harcama','cash_collection':'Nakit Tahsilat','bank_collection':'Banka Tahsilat'};
   return ListView(children:[
-   Row(children:[Expanded(child:OutlinedButton.icon(icon:const Icon(Icons.calendar_month),label:Text(dateKey),onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null){setState(()=>date=d);refresh();}})),IconButton(onPressed:refresh,icon:const Icon(Icons.refresh))]),
-   if(error.isNotEmpty)Text(error,style:const TextStyle(color:Colors.red)),
-   const Text('Supabase ile her 3 saniyede senkronizasyon',style:TextStyle(fontSize:12)),
-   if(widget.kasaDate==dateKey)...[
-    Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-     const Text('1. BÖLÜM — GÜNLÜK KASA',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-     const SizedBox(height:8),
-     for(final item in <MapEntry<String,dynamic>>[
-      MapEntry('Nakit Yakıt + Market',number(widget.kasa['cash_fuel'])+number(widget.kasa['cash_market'])),
-      MapEntry('Nakit Dopuna (MTEL + AERO)',number(widget.kasa['mtel_dopuna'])+number(widget.kasa['aero_dopuna'])),
-      MapEntry('Nakit (Dopuna dahil)',widget.kasa['cash']),
-            MapEntry('Yakıt Satışı',widget.kasa['fuel_sales']),
-      MapEntry('Market Satışı',widget.kasa['market_sales']),
-      MapEntry('MTEL Dopuna',widget.kasa['mtel_dopuna']),
-      MapEntry('AERO Dopuna',widget.kasa['aero_dopuna']),
-     ]) ListTile(dense:true,title:Text(item.key),trailing:Text(km(item.value))),
-     const Divider(),
-     Row(children:[
-      Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(10),child:Column(children:[const Text('Olması Gereken Nakit',textAlign:TextAlign.center),Text(km(number(daily['cash_carryover'])+number(widget.kasa['cash'])+transactions.where((x)=>x['kind']=='cash_collection').fold<num>(0,(a,x)=>a+number(x['amount']))-transactions.where((x)=>x['kind']=='cash_expense').fold<num>(0,(a,x)=>a+number(x['amount']))),style:const TextStyle(fontWeight:FontWeight.bold))])))),
-      Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(10),child:Column(children:[const Text('Kredi Kartı',textAlign:TextAlign.center),Text(km(widget.kasa['card']),style:const TextStyle(fontWeight:FontWeight.bold))])))),
-     ]),
-    ]))),
-   ]else const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('Bu tarihin Kasa verisini görmek için Kasa ekranından aynı tarihi seçin.'))),
-   const Padding(padding:EdgeInsets.all(12),child:Text('2. BÖLÜM — VARDİYA İŞLEMLERİ',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold))),
-   Wrap(spacing:8,children:[for(var i=1;i<=3;i++)ChoiceChip(label:Text('$i. Vardiya'),selected:shift==i,onSelected:(_)=>setState(()=>shift=i))]),
-   Wrap(spacing:8,runSpacing:8,children:[for(final k in kinds.keys)OutlinedButton(onPressed:()=>editTransaction(k),child:Text('+ '+kinds[k]!))]),
-   Card(child:Column(children:[
-    ListTile(title:const Text('Nakit Gün Başı Devir'),subtitle:Text(km(daily['cash_carryover'])),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:()=>editNumber('Nakit devir','ssoil_shift_daily','?business_date=eq.'+dateKey+'&revision=eq.'+(daily['revision']??'').toString(),{'business_date':dateKey},'cash_carryover',daily['cash_carryover']))),
-    for(final bank in banks)ListTile(title:Text(bank['name'].toString()),subtitle:Text('Açılış bakiyesi: '+km(openings.where((v)=>v['bank_id']==bank['id']).isEmpty?0:openings.firstWhere((v)=>v['bank_id']==bank['id'])['opening_balance'])),trailing:IconButton(icon:const Icon(Icons.edit),onPressed:(){final rows=openings.where((v)=>v['bank_id']==bank['id']).toList();editNumber('Banka açılış','ssoil_shift_bank_opening','?business_date=eq.'+dateKey+'&bank_id=eq.'+bank['id'].toString()+'&revision=eq.'+(rows.isEmpty?'':rows.first['revision'].toString()),{'business_date':dateKey,'bank_id':bank['id']},'opening_balance',rows.isEmpty?null:rows.first['opening_balance']);})),
-   ])),
-   Card(child:Column(children:[
-    for(final k in kinds.keys)ListTile(dense:true,title:Text(kinds[k]!),trailing:Text(km(sum(k)))),
-    FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:const Text('Vardiya Devri Kaydet')),
-    for(final h in handoffs)ListTile(title:Text(h['shift_number'].toString()+'. Vardiya - '+h['employee_name'].toString()),subtitle:Text('Durum: '+h['status'].toString()+' / Teslim: '+km(h['delivered_cash']))),
-   ])),
-   for(final x in transactions.where((v)=>v['shift_number']==shift))Card(child:ListTile(title:Text((kinds[x['kind']]??'İşlem')+' - '+km(x['amount'])),subtitle:Text(x['first_value'].toString()+' / '+x['second_value'].toString()+'\n'+x['description'].toString()),isThreeLine:true,trailing:Wrap(children:[IconButton(icon:const Icon(Icons.edit),onPressed:()=>editTransaction(x['kind'].toString(),x)),IconButton(icon:const Icon(Icons.delete_outline),onPressed:()=>deleteTransaction(x))]))),
+   Row(children:[Expanded(child:OutlinedButton.icon(icon:const Icon(Icons.calendar_month),label:Text(dateKey),onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null){setState(()=>date=d);restoreLocal();refresh();}})),IconButton(onPressed:refresh,icon:const Icon(Icons.refresh))]),
+   if(offline)const ListTile(leading:Icon(Icons.wifi_off),title:Text('Çevrimdışı — kayıtlar telefonda saklanıyor')),
+   if(pendingWrites.isNotEmpty)Text('${pendingWrites.length} işlem senkronizasyon bekliyor'),
+   if(lastSync!=null)Text('Son senkronizasyon: ${lastSync!.hour.toString().padLeft(2,'0')}:${lastSync!.minute.toString().padLeft(2,'0')}'),
+   if(section!=0)TextButton.icon(onPressed:()=>setState((){section=0;detailKind=null;}),icon:const Icon(Icons.arrow_back),label:const Text('Vardiya Yönetimi')),
+   if(section==0)...[
+    const ListTile(title:Text('VARDİYA YÖNETİMİ',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
+    line('Anlık olması gereken nakit',number(daily['cash_carryover'])+number(widget.kasa['cash'])+total('cash_collection')-total('cash_expense')),
+    line('Kredi kartı',widget.kasa['card']),
+    for(final k in ['cash_expense','bank_expense','cash_collection','bank_collection'])
+     OutlinedButton(onPressed:()=>setState(()=>detailKind=k),child:Text({'cash_expense':'Nakit Harcamalar','bank_expense':'Banka Harcamaları','cash_collection':'Nakit Tahsilatlar','bank_collection':'Banka Tahsilatları'}[k]!)),
+    FilledButton(onPressed:()=>setState(()=>section=1),child:const Text('1. Bölüm — Günlük Kasa ve Bankalar')),
+    FilledButton(onPressed:()=>setState(()=>section=2),child:const Text('2. Bölüm — Vardiya Devri')),
+   ],
+   if(section==1)summary(),
+   if(section==2)handoffPage(),
+   if(detailKind!=null)detail(),
   ]);
  }
 }
