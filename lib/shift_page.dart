@@ -118,7 +118,6 @@ class _ShiftPageState extends State<ShiftPage> {
   if(busy||!mounted)return;busy=true;
   try{
    await flushPending();
-   if(pendingWrites.isNotEmpty){if(mounted)setState(()=>offline=true);return;}
    final requestedDate=dateKey;
    final v=await Future.wait([
     fetch('ssoil_shift_transactions','business_date=eq.'+dateKey+'&deleted_at=is.null&order=created_at.desc'),
@@ -130,7 +129,7 @@ class _ShiftPageState extends State<ShiftPage> {
     fetch('ssoil_shift_bank_opening','business_date=eq.'+dateKey)
    ]);
    if(mounted&&dateKey==requestedDate)setState((){transactions=v[0];options=v[1];banks=v[2];employees=v[3];handoffs=v[4];daily=v[5].isEmpty?{}:v[5].first;openings=v[6];error='';offline=false;lastSync=DateTime.now();});
-   await persistLocal();
+   if(dateKey==requestedDate)await persistLocal();
   }catch(e){if(mounted)setState((){error='Çevrimdışı: yerel kayıtlar gösteriliyor';offline=true;});}
   finally{busy=false;}
   if(mounted&&dateKey==dateOnly(DateTime.now()))Future.microtask(autoCloseThirdShift);
