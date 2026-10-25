@@ -760,7 +760,7 @@ class _OilHomeState extends State<OilHome> {
      },child:const Text('Kullanıcı Ekle')),
     ],
    )));
-  }finally{emailController.dispose();passwordController.dispose();}
+  }finally{Future<void>.delayed(const Duration(milliseconds:400),(){emailController.dispose();passwordController.dispose();});}
  }
  Widget settingsPage()=>ListView(children:[
   card('Kullanıcı Yönetimi',Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
