@@ -106,7 +106,7 @@ class _ShiftPageState extends State<ShiftPage> {
     FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:const Text('Vardiya Devri Kaydet')),
     for(final h in handoffs)ListTile(title:Text(h['shift_number'].toString()+'. Vardiya - '+h['employee_name'].toString()),subtitle:Text('Durum: '+h['status'].toString()+' / Teslim: '+(h['delivered_cash']??'-').toString())),
    ])),
-   for(final x in transactions.where((v)=>v['shift_number']==shift))Card(child:ListTile(title:Text((kinds[x['kind']]??'İşlem')+' - '+x['amount'].toString()+' KM'),subtitle:Text(x['first_value'].toString()+' / '+x['second_value'].toString()+'\n'+x['description'].toString()),isThreeLine:true,trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[IconButton(icon:const Icon(Icons.edit),onPressed:()=>editTransaction(x['kind'].toString(),x)),IconButton(icon:const Icon(Icons.delete_outline),onPressed:()=>deleteTransaction(x))]))),
+   for(final x in transactions.where((v)=>v['shift_number']==shift))Card(child:ListTile(title:Text((kinds[x['kind']]??'İşlem')+' - '+x['amount'].toString()+' KM'),subtitle:Text(x['first_value'].toString()+' / '+x['second_value'].toString()+'\n'+x['description'].toString()),isThreeLine:true,trailing:Wrap(children:[IconButton(icon:const Icon(Icons.edit),onPressed:()=>editTransaction(x['kind'].toString(),x)),IconButton(icon:const Icon(Icons.delete_outline),onPressed:()=>deleteTransaction(x))]))),
   ]);
  }
 }
