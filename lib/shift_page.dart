@@ -48,12 +48,32 @@ class _ShiftPageState extends State<ShiftPage> {
   await p.setString('ssoil_shift_pending_v2',jsonEncode(pendingWrites));
   await p.setString('ssoil_shift_accumulated_v1',jsonEncode(localAccumulated));
  }
+ bool isRemoval(String method,String table,Object? data)=>
+  method=='DELETE'&&table=='ssoil_shift_handoffs'||
+  method=='PATCH'&&table=='ssoil_shift_transactions'&&data is Map&&data.containsKey('deleted_at');
+ String removalFilter(String method,String table,Object? data,String filter){
+  if(!isRemoval(method,table,data))return filter;
+  return filter.replaceFirst(RegExp(r'&revision=eq\\.[^&]+'),'');
+ }
+ Future<bool> removalConfirmed(String method,String table,Object? data,String filter)async{
+  if(!isRemoval(method,table,data))return false;
+  final id=RegExp(r'id=eq\\.([^&]+)').firstMatch(filter)?.group(1);
+  if(id==null)return false;
+  try{
+   final rows=await fetch(table,'id=eq.$id');
+   if(method=='DELETE')return rows.isEmpty;
+   return rows.length==1&&rows.first['deleted_at']!=null;
+  }catch(_){return false;}
+ }
  Future<void> flushPending()async{
   if(pendingWrites.isEmpty)return;
   for(final op in List<Map<String,dynamic>>.from(pendingWrites)){
    try{
-    final r=await widget.request(op['method'].toString(),op['table'].toString()+op['filter'].toString(),body:op['data'],prefer:'return=representation');
-    if(r==null||r.statusCode<200||r.statusCode>=300||(op['method']!='DELETE'&&r.body.trim()=='[]'))break;
+    final method=op['method'].toString(),table=op['table'].toString();
+    final filter=removalFilter(method,table,op['data'],op['filter'].toString());
+    final r=await widget.request(method,table+filter,body:op['data'],prefer:'return=representation');
+    final accepted=r!=null&&r.statusCode>=200&&r.statusCode<300&&r.body.trim()!='[]';
+    if(!accepted&&!await removalConfirmed(method,table,op['data'],filter))break;
     pendingWrites.remove(op);
     final p=await SharedPreferences.getInstance();
     await p.setString('ssoil_shift_pending_v2',jsonEncode(pendingWrites));
@@ -138,8 +158,10 @@ class _ShiftPageState extends State<ShiftPage> {
   if(busy)return;busy=true;
   final op=<String,dynamic>{'method':method,'table':table,'data':data,'filter':filter};
   try{
-   final r=await widget.request(method,table+filter,body:data,prefer:'return=representation');
-   if(r==null||r.statusCode<200||r.statusCode>=300||(method!='DELETE'&&r.body.trim()=='[]'))throw Exception(r?.body??'Bağlantı yok');
+   final effectiveFilter=removalFilter(method,table,data,filter);
+   final r=await widget.request(method,table+effectiveFilter,body:data,prefer:'return=representation');
+   final accepted=r!=null&&r.statusCode>=200&&r.statusCode<300&&r.body.trim()!='[]';
+   if(!accepted&&!await removalConfirmed(method,table,data,effectiveFilter))throw Exception(r?.body??'Bağlantı yok');
   }catch(e){
    pendingWrites.add(op);
    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İşlem çevrimdışı kuyruğa alındı. Bağlanınca gönderilecek.')));
