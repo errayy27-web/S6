@@ -582,10 +582,10 @@ class _OilHomeState extends State<OilHome> {
   final current=map(fuelPrices[day(DateTime.now())]);
   final controllers={for(final key in fuelKeys.values)key:TextEditingController(text:'${map(current[key])['purchase_price']??''}')};
   final confirmed=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Yakıt alış fiyatları (KM/L)'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[for(final e in fuelKeys.entries)TextField(controller:controllers[e.value],keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'${fuelNames[e.key]} alış fiyatı'))])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));
-  if(confirmed!=true){for(final c in controllers.values)c.dispose();return;}
+  if(confirmed!=true){Future<void>.delayed(const Duration(milliseconds:400),(){for(final c in controllers.values)c.dispose();});return;}
   final entries=<Map<String,dynamic>>[];
-  for(final e in controllers.entries){final n=num.tryParse(e.value.text.trim().replaceAll(',','.'));if(n==null||n<0){notice('Geçersiz alış fiyatı: ${e.key}');for(final c in controllers.values)c.dispose();return;}entries.add({'fuel_type':e.key,'purchase_price':n});}
-  for(final c in controllers.values)c.dispose();
+  for(final e in controllers.entries){final n=num.tryParse(e.value.text.trim().replaceAll(',','.'));if(n==null||n<0){notice('Geçersiz alış fiyatı: ${e.key}');Future<void>.delayed(const Duration(milliseconds:400),(){for(final c in controllers.values)c.dispose();});return;}entries.add({'fuel_type':e.key,'purchase_price':n});}
+  Future<void>.delayed(const Duration(milliseconds:400),(){for(final c in controllers.values)c.dispose();});
   // Write only the existing purchase-price table. Never modify SQL Server.
   final response=await cloudRequest('POST','ssoil_fuel_purchase_prices?on_conflict=fuel_type',body:entries,prefer:'resolution=merge-duplicates,return=representation');
   if(response==null||!(response.statusCode==200||response.statusCode==201||response.statusCode==204)){notice('Supabase kaydı başarısız: $cloudError');return;}
