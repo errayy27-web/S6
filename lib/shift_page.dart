@@ -218,8 +218,9 @@ class _ShiftPageState extends State<ShiftPage> {
   final previous=handoffFor(n-1);
   return previous==null?0:number(previous['delivered_cash']);
  }
- num currentCashSales()=>number(widget.kasa['cash_fuel'])+number(widget.kasa['cash_market']);
- num currentDopuna()=>number(widget.kasa['mtel_dopuna'])+number(widget.kasa['aero_dopuna']);
+ Map<String,dynamic> get datedKasa {final v=widget.kasaArchive[dateKey];return v is Map?Map<String,dynamic>.from(v):dateKey==widget.kasaDate?widget.kasa:<String,dynamic>{};}
+ num currentCashSales()=>number(datedKasa['cash_fuel'])+number(datedKasa['cash_market']);
+ num currentDopuna()=>number(datedKasa['mtel_dopuna'])+number(datedKasa['aero_dopuna']);
  num cashSnapshot(int n,String key){
   if(n<=0)return 0;
   final h=handoffFor(n);
@@ -360,7 +361,7 @@ class _ShiftPageState extends State<ShiftPage> {
     line('Kasada Biriken Dahil Devir',saved['delivered_cash']),
     ListTile(title:Text(diff!>0?'Eksik':diff<0?'Fazla':'Fark'),trailing:Text(km(diff.abs()))),
    ],
-   line('Kredi Kartı',widget.kasa['card']),
+   line('Kredi Kartı',datedKasa['card']),
    FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:Text(saved==null?'Vardiya Devri Kaydet':'Vardiya Devrini Düzelt')),
    for(final h in handoffs)ListTile(
    title:Text('${h['shift_number']}. Vardiya - ${h['employee_name']}'),
