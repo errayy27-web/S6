@@ -14,7 +14,7 @@ class ShiftPage extends StatefulWidget {
 class _ShiftPageState extends State<ShiftPage> {
  Timer? timer; DateTime date=DateTime.now(); int shift=1; int section=0; String? detailKind; bool busy=false; String error=''; bool offline=false; DateTime? lastSync; List<Map<String,dynamic>> pendingWrites=[]; Map<String,dynamic> localHistory={};
  List<Map<String,dynamic>> transactions=[],options=[],banks=[],employees=[],handoffs=[],openings=[];
- Map<String,dynamic> daily={};
+ Map<String,dynamic> daily={}; Map<String,dynamic> localAccumulated={};
  String get dateKey=>date.toIso8601String().substring(0,10);
  num number(dynamic v)=>num.tryParse('$v'.replaceAll(',','.'))??0;
  String km(dynamic v)=>'${number(v).toStringAsFixed(2).replaceAll('.',',')} KM';
@@ -26,6 +26,7 @@ class _ShiftPageState extends State<ShiftPage> {
   try{
    localHistory=Map<String,dynamic>.from(jsonDecode(p.getString('ssoil_shift_cache_v2')??'{}'));
    pendingWrites=(jsonDecode(p.getString('ssoil_shift_pending_v2')??'[]') as List).map((x)=>Map<String,dynamic>.from(x)).toList();
+   localAccumulated=Map<String,dynamic>.from(jsonDecode(p.getString('ssoil_shift_accumulated_v1')??'{}'));
    restoreLocal();
   }catch(_){}
   await refresh();
@@ -44,6 +45,7 @@ class _ShiftPageState extends State<ShiftPage> {
   final p=await SharedPreferences.getInstance();
   await p.setString('ssoil_shift_cache_v2',jsonEncode(localHistory));
   await p.setString('ssoil_shift_pending_v2',jsonEncode(pendingWrites));
+  await p.setString('ssoil_shift_accumulated_v1',jsonEncode(localAccumulated));
  }
  Future<void> flushPending()async{
   if(pendingWrites.isEmpty)return;
@@ -125,21 +127,89 @@ class _ShiftPageState extends State<ShiftPage> {
   await save(exists?'PATCH':'POST',table,exists?{field:data[field]}:[data],filter:exists?filter:'');
  }
  num sum(String kind)=>transactions.where((v)=>v['kind']==kind&&v['shift_number']==shift).fold<num>(0,(a,v)=>a+(num.tryParse(v['amount'].toString())??0));
+ // Kasada Biriken is device-local. Only the combined handoff amount reaches Supabase.
+ String accumulatedKey(int n)=>'$dateKey:$n';
+ List<Map<String,dynamic>> accumulatedRows(int n){
+  final raw=localAccumulated[accumulatedKey(n)];
+  if(raw is! List)return [];
+  return raw.map((e)=>Map<String,dynamic>.from(e as Map)).toList();
+ }
+ num accumulatedSum(int n)=>accumulatedRows(n).fold<num>(0,(v,r)=>v+number(r['amount']));
+ Future<void> editAccumulated([Map<String,dynamic>? old])async{
+  final amount=TextEditingController(text:old==null?'':number(old['amount']).toStringAsFixed(2).replaceAll('.',','));
+  final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:Text(old==null?'Kasada Biriken Ekle':'Kasada Biriken Düzelt'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+   const Text('Kategori T: KASADA BİRİKEN'),
+   const Text('Hesap W: PETROL'),
+   const Text('Açıklama: Kasada biriken fazla para'),
+   TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar KM')),
+  ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))]));
+  if(ok!=true)return;
+  final value=num.tryParse(amount.text.replaceAll(',','.'));
+  if(value==null||value<0)return;
+  final rows=accumulatedRows(shift);
+  final item={'id':old?['id']??DateTime.now().microsecondsSinceEpoch.toString(),'amount':double.parse(value.toStringAsFixed(2)),'first_value':'KASADA BİRİKEN','second_value':'PETROL','description':'Kasada biriken fazla para'};
+  final index=rows.indexWhere((r)=>r['id']==item['id']);
+  if(index<0){rows.add(item);}else{rows[index]=item;}
+  setState(()=>localAccumulated[accumulatedKey(shift)]=rows);
+  await persistLocal();
+ }
+ Future<void> deleteAccumulated(Map<String,dynamic> item)async{
+  final rows=accumulatedRows(shift)..removeWhere((r)=>r['id']==item['id']);
+  setState(()=>localAccumulated[accumulatedKey(shift)]=rows);
+  await persistLocal();
+ }
+ Map<String,dynamic>? handoffFor(int n){
+  final rows=handoffs.where((h)=>number(h['shift_number'])==n).toList();
+  return rows.isEmpty?null:rows.first;
+ }
+ num carryFor(int n){
+  if(n==1)return number(daily['cash_carryover']);
+  final previous=handoffFor(n-1);
+  return previous==null?0:number(previous['delivered_cash']);
+ }
+ num currentCashSales()=>number(widget.kasa['cash_fuel'])+number(widget.kasa['cash_market']);
+ num currentDopuna()=>number(widget.kasa['mtel_dopuna'])+number(widget.kasa['aero_dopuna']);
+ num cashSnapshot(int n,String key){
+  if(n<=0)return 0;
+  final h=handoffFor(n);
+  if(h==null)return 0;
+  return number((h['snapshot'] is Map)?(h['snapshot'] as Map)[key]:null);
+ }
+ num shiftSales(int n,String key,num current){
+  if(n==1)return current;
+  return current-cashSnapshot(n-1,key);
+ }
+ num shiftExpected(int n){
+  final base=carryFor(n);
+  final sales=shiftSales(n,'cash_sales',currentCashSales());
+  final dopuna=shiftSales(n,'dopuna',currentDopuna());
+  final collection=transactions.where((t)=>t['kind']=='cash_collection'&&number(t['shift_number'])==n).fold<num>(0,(v,t)=>v+number(t['amount']));
+  final expense=transactions.where((t)=>t['kind']=='cash_expense'&&number(t['shift_number'])==n).fold<num>(0,(v,t)=>v+number(t['amount']));
+  return base+sales+dopuna+collection-expense-accumulatedSum(n);
+ }
  Future<void> handoff()async{
-  final name=TextEditingController(),delivered=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Vardiya Devir'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:name,decoration:const InputDecoration(labelText:'Çalışan adı')),TextField(controller:delivered,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Teslim nakit KM'))]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))]));
-  if(ok!=true)return;final value=num.tryParse(delivered.text.replaceAll(',','.'));if(value==null||name.text.trim().isEmpty)return;
-  final expected=number(daily['cash_carryover'])+number(widget.kasa['cash'])+sum('cash_collection')-sum('cash_expense');
-  final data={'business_date':dateKey,'shift_number':shift,'employee_name':name.text.trim(),'status':'closed','closed_at':DateTime.now().toUtc().toIso8601String(),'expected_cash':expected,'delivered_cash':value,'snapshot':{'cash_collection':sum('cash_collection'),'cash_expense':sum('cash_expense'),'bank_collection':sum('bank_collection'),'bank_expense':sum('bank_expense')}};
-  final previous=handoffs.where((h)=>h['shift_number']==shift).toList();
-  if(previous.isEmpty){await save('POST','ssoil_shift_handoffs',[data]);}
-  else{await save('PATCH','ssoil_shift_handoffs',data,filter:'?id=eq.'+previous.first['id'].toString()+'&revision=eq.'+previous.first['revision'].toString());}
+  final old=handoffFor(shift);
+  final name=TextEditingController(text:old?['employee_name']?.toString()??'');
+  final delivered=TextEditingController(text:old==null?'':(number(old['delivered_cash'])-accumulatedSum(shift)).toStringAsFixed(2).replaceAll('.',','));
+  final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:Text(old==null?'Vardiya Devir':'Vardiya Devir Düzelt'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+   TextField(controller:name,decoration:const InputDecoration(labelText:'Çalışan adı')),
+   TextField(controller:delivered,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Teslim edilen nakit KM')),
+   Text('Kasada Biriken: ${km(accumulatedSum(shift))}'),
+  ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))]));
+  if(ok!=true)return;
+  final value=num.tryParse(delivered.text.replaceAll(',','.'));
+  if(value==null||value<0||name.text.trim().isEmpty)return;
+  final combined=value+accumulatedSum(shift);
+  final expected=shiftExpected(shift);
+  final data={'business_date':dateKey,'shift_number':shift,'employee_name':name.text.trim(),'status':'closed','closed_at':DateTime.now().toUtc().toIso8601String(),'expected_cash':expected,'delivered_cash':combined,'snapshot':{'cash_sales':currentCashSales(),'dopuna':currentDopuna(),'cash_collection':sum('cash_collection'),'cash_expense':sum('cash_expense'),'bank_collection':sum('bank_collection'),'bank_expense':sum('bank_expense')}};
+  if(old==null){await save('POST','ssoil_shift_handoffs',[data]);}
+  else{await save('PATCH','ssoil_shift_handoffs',data,filter:'?id=eq.'+old['id'].toString()+'&revision=eq.'+old['revision'].toString());}
  }
  num total(String kind)=>transactions.where((v)=>v['kind']==kind).fold<num>(0,(a,v)=>a+number(v['amount']));
  num bankTotal(String kind,String id)=>transactions.where((v)=>v['kind']==kind&&v['bank_id'].toString()==id).fold<num>(0,(a,v)=>a+number(v['amount']));
  Widget line(String title,dynamic amount,{String? kind}){
   return ListTile(dense:true,title:Text(title),trailing:Row(mainAxisSize:MainAxisSize.min,children:[
-   Text(km(amount)),if(kind!=null)TextButton(onPressed:()=>setState(()=>detailKind=kind),child:const Text('Göster'))
+   Text(km(amount)),if(kind!=null)TextButton(onPressed:()=>setState(()=>detailKind=detailKind==kind?null:kind),child:const Text('Göster'))
   ]));
  }
  Widget detail(){
@@ -186,16 +256,42 @@ class _ShiftPageState extends State<ShiftPage> {
   bankRows(),
   const Card(child:ListTile(title:Text('Gün Sonu Tutarları'),subtitle:Text('Nakit, kredi kartı ve banka gün sonu kayıtları ayrıca eklenecek.'))),
  ]);
- Widget handoffPage()=>Column(children:[
-  Wrap(spacing:8,children:[for(var i=1;i<=3;i++)ChoiceChip(label:Text('$i. Vardiya'),selected:shift==i,onSelected:(_)=>setState(()=>shift=i))]),
-  line('Nakit tahsilatlar',sum('cash_collection'),kind:'cash_collection'),
-  line('Nakit harcamalar',sum('cash_expense'),kind:'cash_expense'),
-  line('Nakit yakıt + market',number(widget.kasa['cash_fuel'])+number(widget.kasa['cash_market'])),
-  line('MTEL + AERO',number(widget.kasa['mtel_dopuna'])+number(widget.kasa['aero_dopuna'])),
-  line('Kredi Kartı',widget.kasa['card']),
-  FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:const Text('Vardiya Devri Kaydet')),
-  for(final h in handoffs)ListTile(title:Text('${h['shift_number']}. Vardiya - ${h['employee_name']}'),subtitle:Text('Teslim: ${km(h['delivered_cash'])} / Beklenen: ${km(h['expected_cash'])}')),
- ]);
+ Widget handoffPage(){
+  final cashSales=shiftSales(shift,'cash_sales',currentCashSales());
+  final dopuna=shiftSales(shift,'dopuna',currentDopuna());
+  final collections=sum('cash_collection'),expenses=sum('cash_expense'),accumulated=accumulatedSum(shift);
+  final totalCash=carryFor(shift)+cashSales+dopuna+collections;
+  final expected=totalCash-expenses-accumulated;
+  final saved=handoffFor(shift);
+  final delivered=saved==null?null:number(saved['delivered_cash'])-accumulated;
+  final diff=delivered==null?null:expected-delivered;
+  return Column(children:[
+   Wrap(spacing:8,children:[for(var i=1;i<=3;i++)ChoiceChip(label:Text('$i. Vardiya'),selected:shift==i,onSelected:(_)=>setState((){shift=i;detailKind=null;}))]),
+   line('Nakit devir',carryFor(shift)),
+   line('Nakit yakıt + market',cashSales),
+   line('MTEL + AERO',dopuna),
+   line('Nakit tahsilatlar',collections,kind:'cash_collection'),
+   line('TOPLAM NAKİT',totalCash),
+   line('Nakit harcamalar',expenses,kind:'cash_expense'),
+   ListTile(title:const Text('Kasada Biriken'),subtitle:Text(km(accumulated)),trailing:TextButton(onPressed:()=>setState(()=>detailKind=detailKind=='accumulated'?null:'accumulated'),child:const Text('Göster'))),
+   if(detailKind=='accumulated')Column(children:[
+    FilledButton.icon(onPressed:()=>editAccumulated(),icon:const Icon(Icons.add),label:const Text('Kasada Biriken Ekle')),
+    for(final item in accumulatedRows(shift))ListTile(title:Text(km(item['amount'])),subtitle:const Text('PETROL • Kasada biriken fazla para'),trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
+     IconButton(onPressed:()=>editAccumulated(item),icon:const Icon(Icons.edit)),
+     IconButton(onPressed:()=>deleteAccumulated(item),icon:const Icon(Icons.delete_outline))
+    ])),
+   ]),
+   line('Teslim Edilmesi Gereken Nakit',expected),
+   if(saved!=null)...[
+    line('Teslim Edilen',delivered),
+    line('Kasada Biriken Dahil Devir',saved['delivered_cash']),
+    ListTile(title:Text(diff!>0?'Eksik':diff<0?'Fazla':'Fark'),trailing:Text(km(diff.abs()))),
+   ],
+   line('Kredi Kartı',widget.kasa['card']),
+   FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:Text(saved==null?'Vardiya Devri Kaydet':'Vardiya Devrini Düzelt')),
+   for(final h in handoffs)ListTile(title:Text('${h['shift_number']}. Vardiya - ${h['employee_name']}'),subtitle:Text('Devir: ${km(h['delivered_cash'])} / Beklenen: ${km(h['expected_cash'])}')),
+  ]);
+ }
  @override Widget build(BuildContext context){
   return ListView(children:[
    Row(children:[Expanded(child:OutlinedButton.icon(icon:const Icon(Icons.calendar_month),label:Text(dateKey),onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null){setState(()=>date=d);restoreLocal();refresh();}})),IconButton(onPressed:refresh,icon:const Icon(Icons.refresh))]),
@@ -214,7 +310,7 @@ class _ShiftPageState extends State<ShiftPage> {
    ],
    if(section==1)summary(),
    if(section==2)handoffPage(),
-   if(detailKind!=null)detail(),
+   if(detailKind!=null&&detailKind!='accumulated')detail(),
   ]);
  }
 }
