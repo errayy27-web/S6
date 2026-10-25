@@ -53,7 +53,7 @@ class _ShiftPageState extends State<ShiftPage> {
   for(final op in List<Map<String,dynamic>>.from(pendingWrites)){
    try{
     final r=await widget.request(op['method'].toString(),op['table'].toString()+op['filter'].toString(),body:op['data'],prefer:'return=representation');
-    if(r==null||r.statusCode<200||r.statusCode>=300||r.body.trim()=='[]')break;
+    if(r==null||r.statusCode<200||r.statusCode>=300||(op['method']!='DELETE'&&r.body.trim()=='[]'))break;
     pendingWrites.remove(op);
     final p=await SharedPreferences.getInstance();
     await p.setString('ssoil_shift_pending_v2',jsonEncode(pendingWrites));
@@ -119,6 +119,7 @@ class _ShiftPageState extends State<ShiftPage> {
   try{
    await flushPending();
    if(pendingWrites.isNotEmpty){if(mounted)setState(()=>offline=true);return;}
+   final requestedDate=dateKey;
    final v=await Future.wait([
     fetch('ssoil_shift_transactions','business_date=eq.'+dateKey+'&deleted_at=is.null&order=created_at.desc'),
     fetch('ssoil_shift_options','deleted_at=is.null&order=sort_order.asc'),
@@ -128,7 +129,7 @@ class _ShiftPageState extends State<ShiftPage> {
     fetch('ssoil_shift_daily','business_date=eq.'+dateKey),
     fetch('ssoil_shift_bank_opening','business_date=eq.'+dateKey)
    ]);
-   if(mounted)setState((){transactions=v[0];options=v[1];banks=v[2];employees=v[3];handoffs=v[4];daily=v[5].isEmpty?{}:v[5].first;openings=v[6];error='';offline=false;lastSync=DateTime.now();});
+   if(mounted&&dateKey==requestedDate)setState((){transactions=v[0];options=v[1];banks=v[2];employees=v[3];handoffs=v[4];daily=v[5].isEmpty?{}:v[5].first;openings=v[6];error='';offline=false;lastSync=DateTime.now();});
    await persistLocal();
   }catch(e){if(mounted)setState((){error='Çevrimdışı: yerel kayıtlar gösteriliyor';offline=true;});}
   finally{busy=false;}
@@ -139,7 +140,7 @@ class _ShiftPageState extends State<ShiftPage> {
   final op=<String,dynamic>{'method':method,'table':table,'data':data,'filter':filter};
   try{
    final r=await widget.request(method,table+filter,body:data,prefer:'return=representation');
-   if(r==null||r.statusCode<200||r.statusCode>=300||r.body.trim()=='[]')throw Exception(r?.body??'Bağlantı yok');
+   if(r==null||r.statusCode<200||r.statusCode>=300||(method!='DELETE'&&r.body.trim()=='[]'))throw Exception(r?.body??'Bağlantı yok');
   }catch(e){
    pendingWrites.add(op);
    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İşlem çevrimdışı kuyruğa alındı. Bağlanınca gönderilecek.')));
@@ -216,7 +217,7 @@ class _ShiftPageState extends State<ShiftPage> {
  num carryFor(int n){
   if(n==1)return number(daily['cash_carryover']);
   final previous=handoffFor(n-1);
-  return previous==null?0:number(previous['delivered_cash']);
+  return previous==null||previous['delivered_cash']==null?0:number(previous['delivered_cash']);
  }
  Map<String,dynamic> get datedKasa {final v=widget.kasaArchive[dateKey];return v is Map?Map<String,dynamic>.from(v):dateKey==widget.kasaDate?widget.kasa:<String,dynamic>{};}
  num currentCashSales()=>number(datedKasa['cash_fuel'])+number(datedKasa['cash_market']);
@@ -334,9 +335,9 @@ class _ShiftPageState extends State<ShiftPage> {
   final dopuna=shiftSales(shift,'dopuna',currentDopuna());
   final collections=sum('cash_collection'),expenses=sum('cash_expense'),accumulated=accumulatedSum(shift);
   final totalCash=carryFor(shift)+cashSales+dopuna+collections;
-  final expected=totalCash-expenses-accumulated;
   final saved=handoffFor(shift);
-  final delivered=saved==null?null:number(saved['delivered_cash'])-accumulated;
+  final expected=saved==null?totalCash-expenses-accumulated:number(saved['expected_cash']);
+  final delivered=saved==null||saved['delivered_cash']==null?null:number(saved['delivered_cash'])-accumulated;
   final diff=delivered==null?null:expected-delivered;
   return Column(children:[
    Wrap(spacing:8,children:[for(var i=1;i<=3;i++)ChoiceChip(label:Text('$i. Vardiya'),selected:shift==i,onSelected:(_)=>setState((){shift=i;detailKind=null;}))]),
@@ -355,7 +356,7 @@ class _ShiftPageState extends State<ShiftPage> {
     ])),
    ]),
    line('Teslim Edilmesi Gereken Nakit',expected),
-   if(saved!=null)...[
+   if(saved!=null&&saved['delivered_cash']!=null)...[
     line('Teslim Edilen',delivered),
     line('Kasada Biriken Dahil Devir',saved['delivered_cash']),
     ListTile(title:Text(diff!>0?'Eksik':diff<0?'Fazla':'Fark'),trailing:Text(km(diff.abs()))),
@@ -376,7 +377,7 @@ class _ShiftPageState extends State<ShiftPage> {
  }
  @override Widget build(BuildContext context){
   return ListView(children:[
-   Row(children:[Expanded(child:OutlinedButton.icon(icon:const Icon(Icons.calendar_month),label:Text(dateKey),onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null){setState(()=>date=d);restoreLocal();refresh();}})),IconButton(onPressed:refresh,icon:const Icon(Icons.refresh))]),
+   Row(children:[Expanded(child:OutlinedButton.icon(icon:const Icon(Icons.calendar_month),label:Text(dateKey),onPressed:()async{final d=await showDatePicker(context:context,initialDate:date,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null){setState((){date=d;transactions=[];handoffs=[];openings=[];daily={};detailKind=null;});restoreLocal();refresh();}})),IconButton(onPressed:refresh,icon:const Icon(Icons.refresh))]),
    if(offline)const ListTile(leading:Icon(Icons.wifi_off),title:Text('Çevrimdışı — kayıtlar telefonda saklanıyor')),
    if(pendingWrites.isNotEmpty)Text('${pendingWrites.length} işlem senkronizasyon bekliyor'),
    if(lastSync!=null)Text('Son senkronizasyon: ${lastSync!.hour.toString().padLeft(2,'0')}:${lastSync!.minute.toString().padLeft(2,'0')}'),
