@@ -276,7 +276,7 @@ class _ShiftPageState extends State<ShiftPage> {
    ListTile(title:const Text('Kasada Biriken'),subtitle:Text(km(accumulated)),trailing:TextButton(onPressed:()=>setState(()=>detailKind=detailKind=='accumulated'?null:'accumulated'),child:const Text('Göster'))),
    if(detailKind=='accumulated')Column(children:[
     FilledButton.icon(onPressed:()=>editAccumulated(),icon:const Icon(Icons.add),label:const Text('Kasada Biriken Ekle')),
-    for(final item in accumulatedRows(shift))ListTile(title:Text(km(item['amount'])),subtitle:const Text('PETROL • Kasada biriken fazla para'),trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
+    for(final item in accumulatedRows(shift))ListTile(title:Text(km(item['amount'])),subtitle:const Text('PETROL • Kasada biriken fazla para'),trailing:Wrap(children:[
      IconButton(onPressed:()=>editAccumulated(item),icon:const Icon(Icons.edit)),
      IconButton(onPressed:()=>deleteAccumulated(item),icon:const Icon(Icons.delete_outline))
     ])),
