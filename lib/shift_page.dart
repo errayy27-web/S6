@@ -242,19 +242,28 @@ class _ShiftPageState extends State<ShiftPage> {
   final old=handoffFor(shift);
   final name=TextEditingController(text:old?['employee_name']?.toString()??'');
   final delivered=TextEditingController(text:old==null||old['delivered_cash']==null?'':(number(old['delivered_cash'])-accumulatedSum(shift)).toStringAsFixed(2).replaceAll('.',','));
+  final initial=old==null?DateTime.now():(DateTime.tryParse('${old['closed_at']}')?.toLocal()??DateTime.now());
+  final closeTime=TextEditingController(text:'${initial.hour.toString().padLeft(2,'0')}:${initial.minute.toString().padLeft(2,'0')}:${initial.second.toString().padLeft(2,'0')}');
   final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:Text(old==null?'Vardiya Devir':'Vardiya Devir Düzelt'),content:Column(mainAxisSize:MainAxisSize.min,children:[
    TextField(controller:name,decoration:const InputDecoration(labelText:'Çalışan adı')),
    TextField(controller:delivered,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Teslim edilen nakit KM')),
    Text('Kasada Biriken: ${km(accumulatedSum(shift))}'),
+   TextField(controller:closeTime,decoration:const InputDecoration(labelText:'Kapanış saati SS:DD:SN')),
   ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))]));
   if(ok!=true)return;
   final value=num.tryParse(delivered.text.replaceAll(',','.'));
   if(value==null||value<0||name.text.trim().isEmpty)return;
+  final bits=closeTime.text.trim().split(':');
+  if(bits.length!=3)return;
+  final h=int.tryParse(bits[0]),m=int.tryParse(bits[1]),sec=int.tryParse(bits[2]);
+  if(h==null||m==null||sec==null||h<0||h>23||m<0||m>59||sec<0||sec>59)return;
+  final stamp=DateTime(date.year,date.month,date.day,h,m,sec).toUtc().toIso8601String();
   final combined=value+accumulatedSum(shift);
   final expected=old==null?shiftExpected(shift):number(old['expected_cash']);
-  final data={'business_date':dateKey,'shift_number':shift,'employee_name':name.text.trim(),'status':'closed','closed_at':DateTime.now().toUtc().toIso8601String(),'expected_cash':expected,'delivered_cash':combined,'snapshot':{'cash_sales':currentCashSales(),'dopuna':currentDopuna(),'cash_collection':sum('cash_collection'),'cash_expense':sum('cash_expense'),'bank_collection':sum('bank_collection'),'bank_expense':sum('bank_expense')}};
+  final data={'business_date':dateKey,'shift_number':shift,'employee_name':name.text.trim(),'status':'closed','closed_at':stamp,'expected_cash':expected,'delivered_cash':combined,'snapshot':{'cash_sales':currentCashSales(),'dopuna':currentDopuna(),'cash_collection':sum('cash_collection'),'cash_expense':sum('cash_expense'),'bank_collection':sum('bank_collection'),'bank_expense':sum('bank_expense')}};
   if(old==null){await save('POST','ssoil_shift_handoffs',[data]);}
-  else{if(old['status']=='pending_delivery')data['status']='closed';
+  else{data['snapshot']=old['snapshot'];
+   if(old['status']=='pending_delivery')data['status']='closed';
    await save('PATCH','ssoil_shift_handoffs',data,filter:'?id=eq.'+old['id'].toString()+'&revision=eq.'+old['revision'].toString());
    if(old['status']=='pending_delivery')await nextDayCarry(old,value);
   }
