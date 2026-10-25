@@ -858,7 +858,7 @@ class _ScannerState extends State<Scanner>{bool scanned=false;@override Widget b
   if(base.startsWith('http')){
    try{
     final pcUri=Uri.parse(base);
-    final uri=pcUri.replace(port:8768,path:'/vardiya/$path');
+    final uri=pcUri.replace(path:'/vardiya/$path');
     final req=http.Request(method,uri);
     req.headers['Content-Type']='application/json';
     if(token.isNotEmpty)req.headers['X-SSOIL-Token']=token;
