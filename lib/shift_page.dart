@@ -366,7 +366,7 @@ class _ShiftPageState extends State<ShiftPage> {
    title:Text('${h['shift_number']}. Vardiya - ${h['employee_name']}'),
    subtitle:Text('Devir: ${h['delivered_cash']==null?'Henüz girilmedi':km(h['delivered_cash'])} / Beklenen: ${km(h['expected_cash'])}'),
    onTap:(){setState(()=>shift=number(h['shift_number']).toInt());handoff();},
-   trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
+   trailing:Wrap(children:[
     IconButton(tooltip:'Düzenle',icon:const Icon(Icons.edit_outlined),
      onPressed:(){setState(()=>shift=number(h['shift_number']).toInt());handoff();}),
     IconButton(tooltip:'Sil',icon:const Icon(Icons.delete_outline),
