@@ -46,6 +46,7 @@ class _ShiftPageState extends State<ShiftPage> {
   try{
    final r=await widget.request(method,table+filter,body:data,prefer:'return=representation');
    if(r==null||r.statusCode<200||r.statusCode>=300)throw Exception(r?.body??'Bağlantı yok');
+   if((method=='PATCH'||method=='POST')&&r.body.trim()=='[]')throw Exception('Kayıt güncellenmedi. Yetki veya sürüm uyuşmazlığı.');
   }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Supabase: '+e.toString())));}
   finally{busy=false;await refresh();}
  }
@@ -106,13 +107,16 @@ class _ShiftPageState extends State<ShiftPage> {
       MapEntry('Nakit Yakıt + Market',number(widget.kasa['cash_fuel'])+number(widget.kasa['cash_market'])),
       MapEntry('Nakit Dopuna (MTEL + AERO)',number(widget.kasa['mtel_dopuna'])+number(widget.kasa['aero_dopuna'])),
       MapEntry('Nakit (Dopuna dahil)',widget.kasa['cash']),
-      MapEntry('Kredi Kartı',widget.kasa['card']),
-      MapEntry('Genel Toplam',number(widget.kasa['cash'])+number(widget.kasa['card'])),
-      MapEntry('Yakıt Satışı',widget.kasa['fuel_sales']),
+            MapEntry('Yakıt Satışı',widget.kasa['fuel_sales']),
       MapEntry('Market Satışı',widget.kasa['market_sales']),
       MapEntry('MTEL Dopuna',widget.kasa['mtel_dopuna']),
       MapEntry('AERO Dopuna',widget.kasa['aero_dopuna']),
      ]) ListTile(dense:true,title:Text(item.key),trailing:Text(km(item.value))),
+     const Divider(),
+     Row(children:[
+      Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(10),child:Column(children:[const Text('Olması Gereken Nakit',textAlign:TextAlign.center),Text(km(number(daily['cash_carryover'])+number(widget.kasa['cash'])+transactions.where((x)=>x['kind']=='cash_collection').fold<num>(0,(a,x)=>a+number(x['amount']))-transactions.where((x)=>x['kind']=='cash_expense').fold<num>(0,(a,x)=>a+number(x['amount']))),style:const TextStyle(fontWeight:FontWeight.bold))])))),
+      Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(10),child:Column(children:[const Text('Kredi Kartı',textAlign:TextAlign.center),Text(km(widget.kasa['card']),style:const TextStyle(fontWeight:FontWeight.bold))])))),
+     ]),
     ]))),
    ]else const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('Bu tarihin Kasa verisini görmek için Kasa ekranından aynı tarihi seçin.'))),
    const Padding(padding:EdgeInsets.all(12),child:Text('2. BÖLÜM — VARDİYA İŞLEMLERİ',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold))),
