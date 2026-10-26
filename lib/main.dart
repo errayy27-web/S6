@@ -568,7 +568,41 @@ class _OilHomeState extends State<OilHome> {
  Future<void> lookupProductPhoto(Map<String,dynamic> p)async{
   final id='${p['id']}';
   if(productPhotoLookupBusy.contains(id)||onlineProductPhotos.containsKey(id))return;
-  final codes=list(p['barcodes']).map((v)=>'$v'.trim()).where((v)=>RegExp(r'^\\d{8,14}final path='${photos[id]??''}';return Container(width:size,height:size,decoration:BoxDecoration(color:const Color(0xff253143),borderRadius:BorderRadius.circular(14)),clipBehavior:Clip.antiAlias,child:path.isNotEmpty&&File(path).existsSync()?Image.file(File(path),fit:BoxFit.cover):onlineProductPhotos.containsKey(id)?Image.network(onlineProductPhotos[id]!,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Icon(Icons.inventory_2_outlined,color:Theme.of(context).colorScheme.primary)):Icon(Icons.inventory_2_outlined,color:Theme.of(context).colorScheme.primary));}
+  final codes=list(p['barcodes']).map((v)=>'$v'.trim())
+    .where((v)=>RegExp(r'^[0-9]{8,14}$').hasMatch(v)).toList();
+  if(codes.isEmpty)return;
+  productPhotoLookupBusy.add(id);
+  try{
+   for(final code in codes.take(3)){
+    final response=await http.get(
+     Uri.parse('https://world.openfoodfacts.org/api/v2/product/$code.json?fields=code,product_name,image_front_url,image_url'),
+     headers:{'User-Agent':'SSOIL-Inventory/1.0 (product-photo-lookup)'}
+    ).timeout(const Duration(seconds:8));
+    if(response.statusCode!=200)continue;
+    final payload=map(jsonDecode(response.body));
+    if(number(payload['status'])!=1)continue;
+    final item=map(payload['product']);
+    if('${item['code']}'!=code)continue;
+    final url='${item['image_front_url']??item['image_url']??''}';
+    if(!url.startsWith('https://'))continue;
+    if(mounted)setState(()=>onlineProductPhotos[id]=url);
+    break;
+   }
+  }catch(_){}
+  finally{productPhotoLookupBusy.remove(id);}
+ }
+ Widget photo(String id,double size){
+  final path='${photos[id]??''}';
+  return Container(width:size,height:size,
+   decoration:BoxDecoration(color:const Color(0xff253143),borderRadius:BorderRadius.circular(14)),
+   clipBehavior:Clip.antiAlias,
+   child:path.isNotEmpty&&File(path).existsSync()
+    ?Image.file(File(path),fit:BoxFit.cover)
+    :onlineProductPhotos.containsKey(id)
+      ?Image.network(onlineProductPhotos[id]!,fit:BoxFit.cover,
+       errorBuilder:(_,__,___)=>Icon(Icons.inventory_2_outlined,color:Theme.of(context).colorScheme.primary))
+      :Icon(Icons.inventory_2_outlined,color:Theme.of(context).colorScheme.primary));
+ }
   Widget field(String label, String value, ValueChanged<String> onChanged) =>
       Padding(
         padding: const EdgeInsets.only(bottom: 10),
