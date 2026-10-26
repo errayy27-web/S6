@@ -663,7 +663,7 @@ class _OilHomeState extends State<OilHome> {
   try{
    final rows=list(jsonDecode(r.body));
    final byType=<String,dynamic>{};for(final row in rows){final item=map(row);byType['${item['fuel_type']}']=item;}
-   if(byType.isNotEmpty){fuelPrices[date]=byType;await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));if(mounted&&day(selected)==date)setState((){});}
+   if(byType.isNotEmpty){final previous=map(fuelPrices[date]);for(final entry in byType.entries){previous[entry.key]={...map(previous[entry.key]),...map(entry.value)};}fuelPrices[date]=previous;await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));if(mounted&&day(selected)==date)setState((){});}
   }catch(_){ }
  }
  Future<void> fetchHistoricalFuelStock()async{
@@ -1021,7 +1021,7 @@ class _ScannerState extends State<Scanner>{bool scanned=false;@override Widget b
   try{
    final rows=list(jsonDecode(r.body));
    final byType=<String,dynamic>{};for(final row in rows){final item=map(row);byType['${item['fuel_type']}']=item;}
-   if(byType.isNotEmpty){fuelPrices[date]=byType;await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));if(mounted&&day(selected)==date)setState((){});}
+   if(byType.isNotEmpty){final previous=map(fuelPrices[date]);for(final entry in byType.entries){previous[entry.key]={...map(previous[entry.key]),...map(entry.value)};}fuelPrices[date]=previous;await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));if(mounted&&day(selected)==date)setState((){});}
   }catch(_){ }
  }
  Future<void> fetchHistoricalFuelStock()async{
