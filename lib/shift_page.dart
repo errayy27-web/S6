@@ -322,7 +322,19 @@ class _ShiftPageState extends State<ShiftPage> {
    filter:'?id=eq.${row['id']}&revision=eq.${row['revision']}');
  }
  num total(String kind)=>transactions.where((v)=>v['kind']==kind).fold<num>(0,(a,v)=>a+number(v['amount']));
- num bankTotal(String kind,String id)=>transactions.where((v)=>v['kind']==kind&&v['bank_id'].toString()==id).fold<num>(0,(a,v)=>a+number(v['amount']));
+ bool isBankDeposit(Map<String,dynamic> t)=>t['kind']=='cash_expense'&&(' ${t['first_value']??''} ${t['description']??''}').toUpperCase().contains('HESABA YATIRILAN');
+ String depositBankId(Map<String,dynamic> t){
+  final explicit='${t['bank_id']??''}';
+  if(banks.any((b)=>'${b['id']}'==explicit))return explicit;
+  final text=' ${t['second_value']??''} ${t['description']??''}'.toUpperCase();
+  for(final b in banks){
+   final name='${b['name']??''}'.toUpperCase().trim();
+   if(name.isNotEmpty&&text.contains(name))return '${b['id']}';
+   if(name.contains('RAFF')&&text.contains('RAFF'))return '${b['id']}';
+  }
+  return '';
+ }
+ num bankTotal(String kind,String id)=>transactions.where((v)=>(v['kind']==kind&&v['bank_id'].toString()==id)||(kind=='bank_collection'&&isBankDeposit(v)&&depositBankId(v)==id)).fold<num>(0,(a,v)=>a+number(v['amount']));
  Widget line(String title,dynamic amount,{String? kind}){
   return ListTile(dense:true,title:Text(title),trailing:Row(mainAxisSize:MainAxisSize.min,children:[
    Text(km(amount)),if(kind!=null)TextButton(onPressed:()=>setState(()=>detailKind=detailKind==kind?null:kind),child:const Text('Göster'))
