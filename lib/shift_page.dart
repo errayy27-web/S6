@@ -405,8 +405,8 @@ class _ShiftPageState extends State<ShiftPage> {
    if(section!=0)TextButton.icon(onPressed:()=>setState((){section=0;detailKind=null;}),icon:const Icon(Icons.arrow_back),label:const Text('Vardiya Yönetimi')),
    if(section==0)...[
     const ListTile(title:Text('VARDİYA YÖNETİMİ',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold))),
-    line('Anlık olması gereken nakit',number(daily['cash_carryover'])+number(widget.kasa['cash'])+total('cash_collection')-total('cash_expense')),
-    line('Kredi kartı',widget.kasa['card']),
+    line('Anlık olması gereken nakit',number(daily['cash_carryover'])+number(datedKasa['cash'])+total('cash_collection')-total('cash_expense')),
+    line('Kredi kartı',datedKasa['card']),
     for(final k in ['cash_expense','bank_expense','cash_collection','bank_collection'])
      OutlinedButton(onPressed:()=>setState(()=>detailKind=k),child:Text({'cash_expense':'Nakit Harcamalar','bank_expense':'Banka Harcamaları','cash_collection':'Nakit Tahsilatlar','bank_collection':'Banka Tahsilatları'}[k]!)),
     FilledButton(onPressed:()=>setState(()=>section=1),child:const Text('1. Bölüm — Günlük Kasa ve Bankalar')),
