@@ -657,26 +657,32 @@ class _OilHomeState extends State<OilHome> {
  static const fuelNames={'1':'Benzin','2':'Dizel','3':'Dizel+'};
  static const fuelKeys={'1':'benzin','2':'dizel','3':'dizel_plus'};
  Future<void> fetchFuelPrices()async{
-  final date=day(selected);
-  final r=await cloudRequest('GET','ssoil_fuel_daily_prices?select=fuel_type,purchase_price,sale_price,sale_date&sale_date=eq.$date');
-  if(r==null||r.statusCode!=200)return;
+  final requested=day(selected);
   try{
-   final rows=list(jsonDecode(r.body));
-   final byType=<String,dynamic>{};for(final row in rows){final item=map(row);byType['${item['fuel_type']}']=item;}
-   if(byType.isNotEmpty){final previous=map(fuelPrices[date]);for(final entry in byType.entries){previous[entry.key]={...map(previous[entry.key]),...map(entry.value)};}fuelPrices[date]=previous;await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));if(mounted&&day(selected)==date)setState((){});}
-  }catch(_){ }
-  try{
+   final r=await cloudRequest('GET','ssoil_fuel_daily_prices?select=fuel_type,purchase_price,sale_price,sale_date&sale_date=lte.$requested&order=sale_date.desc&limit=90');
+   if(r!=null&&r.statusCode==200){
+    final values=map(fuelPrices[requested]);
+    final seen=<String>{};
+    for(final raw in list(jsonDecode(r.body))){
+     final item=map(raw),key='${item['fuel_type']}';
+     if(seen.contains(key))continue;
+     seen.add(key);
+     final existing=map(values[key]);
+     values[key]={...existing,if(item['sale_price']!=null)'sale_price':item['sale_price'],if(item['purchase_price']!=null&&number(item['purchase_price'])>0)'purchase_price':item['purchase_price']};
+    }
+    fuelPrices[requested]=values;
+   }
    final p=await cloudRequest('GET','ssoil_fuel_purchase_prices?select=fuel_type,purchase_price');
    if(p!=null&&p.statusCode==200){
-    final values=map(fuelPrices[date]);
+    final values=map(fuelPrices[requested]);
     for(final raw in list(jsonDecode(p.body))){
-     final row=map(raw),key='${row['fuel_type']}';
-     if(row['purchase_price']!=null)values[key]={...map(values[key]),'purchase_price':row['purchase_price']};
+     final item=map(raw),key='${item['fuel_type']}';
+     if(item['purchase_price']!=null)values[key]={...map(values[key]),'purchase_price':item['purchase_price']};
     }
-    fuelPrices[date]=values;
-    await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));
-    if(mounted&&day(selected)==date)setState((){});
+    fuelPrices[requested]=values;
    }
+   await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));
+   if(mounted&&day(selected)==requested)setState((){});
   }catch(_){}
  }
  Future<void> fetchHistoricalFuelStock()async{
@@ -708,7 +714,11 @@ class _OilHomeState extends State<OilHome> {
   Future<void>.delayed(const Duration(milliseconds:400),(){for(final c in controllers.values)c.dispose();});
   // Write only the existing purchase-price table. Never modify SQL Server.
   final response=await cloudRequest('POST','ssoil_fuel_purchase_prices?on_conflict=fuel_type',body:entries,prefer:'resolution=merge-duplicates,return=representation');
-  if(response==null||!(response.statusCode==200||response.statusCode==201||response.statusCode==204)){notice('Supabase kaydı başarısız: $cloudError');return;}
+  if(response==null||!(response.statusCode==200||response.statusCode==201)||response.body.trim().isEmpty||response.body.trim()=='[]'){notice('Supabase kaydı doğrulanamadı: ${response?.body??cloudError}');return;}
+  final verified=await cloudRequest('GET','ssoil_fuel_purchase_prices?select=fuel_type,purchase_price');
+  if(verified==null||verified.statusCode!=200){notice('Supabase alış fiyatları okunamadı');return;}
+  final stored=list(jsonDecode(verified.body));
+  if(entries.any((e)=>!stored.any((v){final row=map(v);return row['fuel_type']==e['fuel_type']&&(number(row['purchase_price'])-number(e['purchase_price'])).abs()<0.0001;}))){notice('Alış fiyatı Supabase üzerinde değişmedi. Yetki veya güncelleme engeli olabilir.');return;}
   final date=day(DateTime.now());final values=map(fuelPrices[date]);
   for(final row in entries){final key='${row['fuel_type']}';values[key]={...map(values[key]),'purchase_price':row['purchase_price']};}
   fuelPrices[date]=values;await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));
