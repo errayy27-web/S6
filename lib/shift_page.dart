@@ -253,7 +253,20 @@ class _ShiftPageState extends State<ShiftPage> {
   final saved=handoffFor(n);
   if(saved!=null&&saved['snapshot'] is Map){
    final snap=saved['snapshot'] as Map;
-   if(snap.containsKey(key))return number(snap[key]);
+   if(snap['source']=='daily_kasa_archive'&&n==3){
+    if(key=='cash_sales')return number(snap['cash_fuel'])+number(snap['cash_market']);
+    if(key=='dopuna')return number(snap['mtel_dopuna'])+number(snap['aero_dopuna']);
+   }
+   if(snap.containsKey(key)){
+    final cumulative=number(snap[key]);
+    if(n==1)return cumulative;
+    final previous=handoffFor(n-1);
+    if(previous!=null&&previous['snapshot'] is Map&&
+       (previous['snapshot'] as Map).containsKey(key)){
+      return cumulative-cashSnapshot(n-1,key);
+    }
+    return cumulative;
+   }
   }
   if(n==1)return current;
   final previous=handoffFor(n-1);
