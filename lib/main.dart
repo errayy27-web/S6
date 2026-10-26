@@ -880,7 +880,62 @@ class _OilHomeState extends State<OilHome> {
    )));
   }finally{Future<void>.delayed(const Duration(milliseconds:400),(){emailController.dispose();passwordController.dispose();});}
  }
+ Future<void> showPendingShiftOperations()async{
+  final storage=await SharedPreferences.getInstance();
+  List<Map<String,dynamic>> readOperations(){
+   try{
+    final raw=jsonDecode(storage.getString('ssoil_shift_pending_v2')??'[]');
+    if(raw is! List)return [];
+    return raw.whereType<Map>().map((item)=>Map<String,dynamic>.from(item)).toList();
+   }catch(_){return [];}
+  }
+  if(!mounted)return;
+  await showDialog<void>(context:context,builder:(dialogContext)=>StatefulBuilder(
+   builder:(dialogContext,refreshDialog){
+    final operations=readOperations();
+    return AlertDialog(
+     title:Text('Bekleyen İşlemler (${operations.length})'),
+     content:SizedBox(width:double.maxFinite,height:MediaQuery.of(dialogContext).size.height*0.55,
+      child:operations.isEmpty
+       ?const Center(child:Text('Bekleyen vardiya işlemi yok.'))
+       :ListView.builder(itemCount:operations.length,itemBuilder:(context,index){
+        final op=operations[index];
+        final method='${op['method']??''}',table='${op['table']??''}',filter='${op['filter']??''}';
+        return Card(child:Padding(padding:const EdgeInsets.all(8),child:Column(
+         crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text('${index+1}. $method • $table',style:const TextStyle(fontWeight:FontWeight.bold)),
+          if(filter.isNotEmpty)SelectableText(filter),
+          SelectableText('Veri: ${jsonEncode(op['data'])}',maxLines:5),
+          Align(alignment:Alignment.centerRight,child:TextButton.icon(
+           icon:const Icon(Icons.delete_outline),label:const Text('Sil'),
+           onPressed:()async{
+            final confirm=await showDialog<bool>(context:dialogContext,builder:(c)=>AlertDialog(
+             title:const Text('Bekleyen işlem silinsin mi?'),
+             content:const Text('Bu işlem yalnızca telefondaki gönderilmemiş kuyruk kaydını siler. Supabase kayıtlarını silmez. Gönderilmemiş değişiklik kaybolabilir.'),
+             actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),
+              FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('İşlemi Sil'))]));
+            if(confirm!=true)return;
+            final latest=readOperations();
+            final target=jsonEncode(op);
+            final position=latest.indexWhere((item)=>jsonEncode(item)==target);
+            if(position<0){refreshDialog((){});return;}
+            latest.removeAt(position);
+            await storage.setString('ssoil_shift_pending_v2',jsonEncode(latest));
+            if(dialogContext.mounted)refreshDialog((){});
+           }))
+         ])));
+       })),
+     actions:[TextButton(onPressed:()=>refreshDialog((){}),child:const Text('Yenile')),
+      FilledButton(onPressed:()=>Navigator.pop(dialogContext),child:const Text('Kapat'))],
+    );
+   }));
+ }
  Widget settingsPage()=>ListView(children:[
+  card('Bekleyen İşlemler',Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+   const Text('Telefonda senkronizasyon bekleyen vardiya işlemlerini görüntüleyin ve tek tek silin.'),
+   const SizedBox(height:10),
+   FilledButton.icon(onPressed:showPendingShiftOperations,icon:const Icon(Icons.pending_actions),label:const Text('Bekleyen İşlemleri Gör / Sil')),
+  ]),icon:Icons.sync_problem),
   card('Kullanıcı Yönetimi',Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
    const Text('Supabase Auth üzerinden yeni kullanıcı hesabı oluşturun. Mevcut kullanıcı oturumu değiştirilmez.'),
    const SizedBox(height:10),
