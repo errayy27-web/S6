@@ -665,6 +665,19 @@ class _OilHomeState extends State<OilHome> {
    final byType=<String,dynamic>{};for(final row in rows){final item=map(row);byType['${item['fuel_type']}']=item;}
    if(byType.isNotEmpty){final previous=map(fuelPrices[date]);for(final entry in byType.entries){previous[entry.key]={...map(previous[entry.key]),...map(entry.value)};}fuelPrices[date]=previous;await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));if(mounted&&day(selected)==date)setState((){});}
   }catch(_){ }
+  try{
+   final p=await cloudRequest('GET','ssoil_fuel_purchase_prices?select=fuel_type,purchase_price');
+   if(p!=null&&p.statusCode==200){
+    final values=map(fuelPrices[date]);
+    for(final raw in list(jsonDecode(p.body))){
+     final row=map(raw),key='${row['fuel_type']}';
+     if(row['purchase_price']!=null)values[key]={...map(values[key]),'purchase_price':row['purchase_price']};
+    }
+    fuelPrices[date]=values;
+    await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));
+    if(mounted&&day(selected)==date)setState((){});
+   }
+  }catch(_){}
  }
  Future<void> fetchHistoricalFuelStock()async{
   final date=day(selected);
