@@ -250,7 +250,15 @@ class _ShiftPageState extends State<ShiftPage> {
   return number((h['snapshot'] is Map)?(h['snapshot'] as Map)[key]:null);
  }
  num shiftSales(int n,String key,num current){
+  final saved=handoffFor(n);
+  if(saved!=null&&saved['snapshot'] is Map){
+   final snap=saved['snapshot'] as Map;
+   if(snap.containsKey(key))return number(snap[key]);
+  }
   if(n==1)return current;
+  final previous=handoffFor(n-1);
+  if(previous==null||previous['snapshot'] is! Map||
+     !(previous['snapshot'] as Map).containsKey(key))return 0;
   return current-cashSnapshot(n-1,key);
  }
  num shiftExpected(int n){
