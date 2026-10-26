@@ -681,6 +681,17 @@ class _OilHomeState extends State<OilHome> {
     }
     fuelPrices[requested]=values;
    }
+   // Current sale prices always come from SQL ART via the synced product list.
+   // Do not replace historical daily sale prices with today's ART prices.
+   if(requested==day(DateTime.now())){
+    final values=map(fuelPrices[requested]);
+    for(final e in fuelKeys.entries){
+     Map<String,dynamic> product={};
+     for(final p in products){if('${p['id']}'==e.key){product=p;break;}}
+     if(product['price']!=null)values[e.value]={...map(values[e.value]),'sale_price':product['price']};
+    }
+    fuelPrices[requested]=values;
+   }
    await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));
    if(mounted&&day(selected)==requested)setState((){});
   }catch(_){}
