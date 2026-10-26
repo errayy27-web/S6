@@ -302,7 +302,7 @@ class _ShiftPageState extends State<ShiftPage> {
   if(h==null||m==null||sec==null||h<0||h>23||m<0||m>59||sec<0||sec>59)return;
   final stamp=DateTime(date.year,date.month,date.day,h,m,sec).toUtc().toIso8601String();
   final combined=value+accumulatedSum(shift);
-  final expected=old==null?shiftExpected(shift):number(old['expected_cash']);
+  final expected=shiftExpected(shift);
   final data={'business_date':dateKey,'shift_number':shift,'employee_name':name.text.trim(),'status':'closed','closed_at':stamp,'expected_cash':expected,'delivered_cash':combined,'snapshot':{'cash_sales':currentCashSales(),'dopuna':currentDopuna(),'cash_collection':sum('cash_collection'),'cash_expense':sum('cash_expense'),'bank_collection':sum('bank_collection'),'bank_expense':sum('bank_expense')}};
   if(old==null){await save('POST','ssoil_shift_handoffs',[data]);}
   else{data['snapshot']=old['snapshot'];
@@ -378,7 +378,7 @@ class _ShiftPageState extends State<ShiftPage> {
   final collections=sum('cash_collection'),expenses=sum('cash_expense'),accumulated=accumulatedSum(shift);
   final totalCash=carryFor(shift)+cashSales+dopuna+collections;
   final saved=handoffFor(shift);
-  final expected=saved==null?totalCash-expenses-accumulated:number(saved['expected_cash']);
+  final expected=totalCash-expenses-accumulated;
   final delivered=saved==null||saved['delivered_cash']==null?null:number(saved['delivered_cash'])-accumulated;
   final diff=delivered==null?null:expected-delivered;
   return Column(children:[
@@ -407,7 +407,7 @@ class _ShiftPageState extends State<ShiftPage> {
    FilledButton.icon(onPressed:handoff,icon:const Icon(Icons.check),label:Text(saved==null?'Vardiya Devri Kaydet':'Vardiya Devrini Düzelt')),
    for(final h in handoffs)ListTile(
    title:Text('${h['shift_number']}. Vardiya - ${h['employee_name']}'),
-   subtitle:Text('Devir: ${h['delivered_cash']==null?'Henüz girilmedi':km(h['delivered_cash'])} / Beklenen: ${km(h['expected_cash'])}'),
+   subtitle:Text('Devir: ${h['delivered_cash']==null?'Henüz girilmedi':km(h['delivered_cash'])} / Beklenen: ${km(shiftExpected(number(h['shift_number']).toInt()))}'),
    onTap:(){setState(()=>shift=number(h['shift_number']).toInt());handoff();},
    trailing:Wrap(children:[
     IconButton(tooltip:'Düzenle',icon:const Icon(Icons.edit_outlined),
