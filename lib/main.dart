@@ -723,11 +723,11 @@ class _OilHomeState extends State<OilHome> {
   final confirmed=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Yakıt alış fiyatları (KM/L)'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[for(final e in fuelKeys.entries)TextField(controller:controllers[e.value],keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'${fuelNames[e.key]} alış fiyatı'))])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));
   if(confirmed!=true){Future<void>.delayed(const Duration(milliseconds:400),(){for(final c in controllers.values)c.dispose();});return;}
   final entries=<Map<String,dynamic>>[];
-  for(final e in controllers.entries){final n=num.tryParse(e.value.text.trim().replaceAll(',','.'));if(n==null||n<0){notice('Geçersiz alış fiyatı: ${e.key}');Future<void>.delayed(const Duration(milliseconds:400),(){for(final c in controllers.values)c.dispose();});return;}entries.add({'fuel_type':e.key,'purchase_price':n});}
+  for(final e in controllers.entries){final n=num.tryParse(e.value.text.trim().replaceAll(',','.'));if(n==null||n<0){notice('Geçersiz alış fiyatı: ${e.key}');Future<void>.delayed(const Duration(milliseconds:400),(){for(final c in controllers.values)c.dispose();});return;}entries.add({'fuel_type':e.key,'purchase_price':n,'updated_at':DateTime.now().toUtc().toIso8601String()});}
   Future<void>.delayed(const Duration(milliseconds:400),(){for(final c in controllers.values)c.dispose();});
   // Write only the existing purchase-price table. Never modify SQL Server.
   final response=await cloudRequest('POST','ssoil_fuel_purchase_prices?on_conflict=fuel_type',body:entries,prefer:'resolution=merge-duplicates,return=representation');
-  if(response==null||!(response.statusCode==200||response.statusCode==201)||response.body.trim().isEmpty||response.body.trim()=='[]'){notice('Supabase kaydı doğrulanamadı: ${response?.body??cloudError}');return;}
+  if(response==null||!(response.statusCode==200||response.statusCode==201)||response.body.trim().isEmpty||response.body.trim()=='[]'){notice('Supabase alış fiyatı kaydedilemedi. Kullanıcı ssoil_staff yetkisini ve bağlantıyı kontrol edin. ${response?.body??cloudError}');return;}
   final verified=await cloudRequest('GET','ssoil_fuel_purchase_prices?select=fuel_type,purchase_price');
   if(verified==null||verified.statusCode!=200){notice('Supabase alış fiyatları okunamadı');return;}
   final stored=list(jsonDecode(verified.body));
@@ -735,7 +735,8 @@ class _OilHomeState extends State<OilHome> {
   final date=day(DateTime.now());final values=map(fuelPrices[date]);
   for(final row in entries){final key='${row['fuel_type']}';values[key]={...map(values[key]),'purchase_price':row['purchase_price']};}
   fuelPrices[date]=values;await prefs?.setString('ssoilFuelPricesV1',jsonEncode(fuelPrices));
-  if(mounted)setState((){});notice('Alış fiyatları Supabase üzerinde kaydedildi');
+  await fetchFuelPrices();
+  if(mounted)setState((){});notice('Alış fiyatları Supabase kaydından doğrulandı');
  }
  Widget kasaLine(String label,String value,{bool strong=false})=>Padding(padding:const EdgeInsets.symmetric(vertical:13),child:Row(children:[Expanded(child:Text(label,style:TextStyle(fontSize:15,fontWeight:strong?FontWeight.w700:FontWeight.normal))),Text(value,style:TextStyle(fontSize:15,fontWeight:FontWeight.bold,color:const Color(0xffb32130)))]));
  String kasaAmount(String key)=>kasa[key]==null?'Veri yok':'${money(kasa[key])} KM';
