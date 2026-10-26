@@ -65,7 +65,7 @@ class _OilHomeState extends State<OilHome> {
  Map<String,dynamic> get sharedData=>{'labels':labels,'orders':orders,'suppliers':suppliers,'supplierOf':supplierOf,'minimum':minimum,'discrepancies':discrepancies,'orderUnits':orderUnits,'barcodeErrors':barcodeErrors};
  @override void initState(){super.initState();load();}
  @override void dispose(){syncTimer?.cancel();sharedTimer?.cancel();super.dispose();}
- Future<void> load()async{prefs=await SharedPreferences.getInstance();supabasePassword=await secureStore.read(key:'ssoil_supabase_password')??''; if(!mounted)return;setState((){local=prefs!.getString('local')??local;cloud=prefs!.getString('cloud')??'';supabaseUrl=prefs!.getString('supabaseUrl')??'';supabaseKey=prefs!.getString('supabaseKey')??'';supabaseEmail=prefs!.getString('supabaseEmail')??'';cloudRevision=prefs!.getInt('cloudRevision')??0;token=prefs!.getString('token')??'';coffeeUrl=prefs!.getString('coffee')??'';fuelIds=prefs!.getString('fuelIds')??'';products=list(jsonDecode(prefs!.getString('products')??'[]')).map((e)=>map(e)).toList();base=map(jsonDecode(prefs!.getString('base')??'{}'));previousSales=map(jsonDecode(prefs!.getString('previousSales')??'{}'));daily=map(jsonDecode(prefs!.getString('daily')??'{}'));photos=map(jsonDecode(prefs!.getString('photos')??'{}'));suppliers=map(jsonDecode(prefs!.getString('suppliers')??'{}'));supplierOf=map(jsonDecode(prefs!.getString('supplierOf')??'{}'));minimum=map(jsonDecode(prefs!.getString('minimum')??'{}'));orders=map(jsonDecode(prefs!.getString('orders')??'{}'));labels=map(jsonDecode(prefs!.getString('labels')??'{}'));orderUnits=map(jsonDecode(prefs!.getString('orderUnits')??'{}'));discrepancies=map(jsonDecode(prefs!.getString('discrepancies')??'{}'));barcodeErrors=map(jsonDecode(prefs!.getString('barcodeErrors')??'{}'));kasaArchive=map(jsonDecode(prefs!.getString('ssoilKasaArchiveV1')??'{}'));fuelPrices=map(jsonDecode(prefs!.getString('ssoilFuelPricesV1')??'{}'));historicalFuelStock=map(jsonDecode(prefs!.getString('ssoilFuelStockArchiveV1')??'{}'));kasa=map(kasaArchive[day(selected)]);});syncRevision=prefs!.getInt('syncRevision')??0;pending=list(jsonDecode(prefs!.getString('syncPending')??'[]'));tracked=map(jsonDecode(prefs!.getString('syncTracked')??'{}'));syncTimer=Timer.periodic(const Duration(seconds:3),(_){if(followToday&&day(selected)!=day(DateTime.now())){setState((){selected=DateTime.now();kasa={};});}refreshReadOnly();fetchFuelPrices();});sharedTimer=Timer.periodic(const Duration(seconds:3),(_){if(mounted)syncShared();});syncShared();refreshReadOnly();auditKasaHistory();fetchFuelPrices();fetchHistoricalFuelStock();fetchKasaBanks();}
+ Future<void> load()async{prefs=await SharedPreferences.getInstance();supabasePassword=await secureStore.read(key:'ssoil_supabase_password')??''; if(!mounted)return;setState((){local=prefs!.getString('local')??local;cloud=prefs!.getString('cloud')??'';supabaseUrl=prefs!.getString('supabaseUrl')??'';supabaseKey=prefs!.getString('supabaseKey')??'';supabaseEmail=prefs!.getString('supabaseEmail')??'';cloudRevision=prefs!.getInt('cloudRevision')??0;token=prefs!.getString('token')??'';coffeeUrl=prefs!.getString('coffee')??'';fuelIds=prefs!.getString('fuelIds')??'';products=list(jsonDecode(prefs!.getString('products')??'[]')).map((e)=>map(e)).toList();base=map(jsonDecode(prefs!.getString('base')??'{}'));previousSales=map(jsonDecode(prefs!.getString('previousSales')??'{}'));daily=map(jsonDecode(prefs!.getString('daily')??'{}'));photos=map(jsonDecode(prefs!.getString('photos')??'{}'));suppliers=map(jsonDecode(prefs!.getString('suppliers')??'{}'));supplierOf=map(jsonDecode(prefs!.getString('supplierOf')??'{}'));minimum=map(jsonDecode(prefs!.getString('minimum')??'{}'));orders=map(jsonDecode(prefs!.getString('orders')??'{}'));labels=map(jsonDecode(prefs!.getString('labels')??'{}'));orderUnits=map(jsonDecode(prefs!.getString('orderUnits')??'{}'));discrepancies=map(jsonDecode(prefs!.getString('discrepancies')??'{}'));barcodeErrors=map(jsonDecode(prefs!.getString('barcodeErrors')??'{}'));kasaArchive=map(jsonDecode(prefs!.getString('ssoilKasaArchiveV1')??'{}'));fuelPrices=map(jsonDecode(prefs!.getString('ssoilFuelPricesV1')??'{}'));historicalFuelStock=map(jsonDecode(prefs!.getString('ssoilFuelStockArchiveV1')??'{}'));kasa=map(kasaArchive[day(selected)]);});syncRevision=prefs!.getInt('syncRevision')??0;pending=list(jsonDecode(prefs!.getString('syncPending')??'[]'));tracked=map(jsonDecode(prefs!.getString('syncTracked')??'{}'));syncTimer=Timer.periodic(const Duration(seconds:3),(_){if(followToday&&day(selected)!=day(DateTime.now())){setState((){selected=DateTime.now();kasa={};});}refreshReadOnly();fetchFuelPrices();});sharedTimer=Timer.periodic(const Duration(seconds:3),(_){if(mounted)syncShared();});syncShared();refreshReadOnly();auditKasaHistory();fetchFuelPrices();fetchHistoricalFuelStock();fetchKasaBanks();loadProductImageUrls();}
  Future<void> save()async{final p=prefs;if(p==null)return;for(final e in <String,dynamic>{'local':local,'cloud':cloud,'supabaseUrl':supabaseUrl,'supabaseKey':supabaseKey,'supabaseEmail':supabaseEmail,'token':token,'coffee':coffeeUrl,'fuelIds':fuelIds,'products':products,'base':base,'previousSales':previousSales,'daily':daily,'photos':photos,'suppliers':suppliers,'supplierOf':supplierOf,'minimum':minimum,'orders':orders,'labels':labels,'orderUnits':orderUnits,'discrepancies':discrepancies,'barcodeErrors':barcodeErrors}.entries){await p.setString(e.key,e.value is String?e.value:jsonEncode(e.value));}await queueSharedChanges();await secureStore.write(key:'ssoil_supabase_password',value:supabasePassword);syncShared();}
  Future<void> queueSharedChanges()async{
   for(final entry in sharedData.entries){
@@ -1015,7 +1015,43 @@ class _OilHomeState extends State<OilHome> {
     );
    }));
  }
+ bool productImageSyncBusy=false;
+ int productImageSyncProcessed=0;
+ Future<void> syncProductImages()async{
+  if(productImageSyncBusy)return;
+  setState((){productImageSyncBusy=true;productImageSyncProcessed=0;});
+  try{
+   if(supabaseAccessToken.isEmpty&&!await cloudLogin())throw StateError('Supabase oturumu açılamadı: $cloudError');
+   final endpoint=Uri.parse('${supabaseUrl.trim().replaceAll(RegExp(r"/+$"),"")}/functions/v1/match-product-images');
+   for(var offset=0;offset<948;offset+=10){
+    final response=await http.post(endpoint,headers:{'apikey':supabaseKey.trim(),'Authorization':'Bearer $supabaseAccessToken','Content-Type':'application/json'},body:jsonEncode({'offset':offset,'limit':10})).timeout(const Duration(seconds:110));
+    if(response.statusCode!=200)throw StateError('Görsel eşleştirme HTTP ${response.statusCode}: ${response.body}');
+    final result=map(jsonDecode(response.body));
+    if(mounted)setState(()=>productImageSyncProcessed=number(result['next_offset']).toInt());
+    if(number(result['next_offset'])>=number(result['total']))break;
+   }
+   await loadProductImageUrls();
+   notice('Görsel taraması tamamlandı: $productImageSyncProcessed ürün incelendi.');
+  }catch(e){notice('Görsel senkronizasyon hatası: $e');}
+  finally{if(mounted)setState(()=>productImageSyncBusy=false);}
+ }
+ Future<void> loadProductImageUrls()async{
+  if(supabaseUrl.isEmpty||supabaseKey.isEmpty)return;
+  try{
+   final response=await http.get(Uri.parse('${supabaseUrl.trim().replaceAll(RegExp(r"/+$"),"")}/rest/v1/ssoil_product_images?select=product_id,image_path&limit=1500'),headers:{'apikey':supabaseKey.trim(),'Authorization':'Bearer ${supabaseAccessToken.isNotEmpty?supabaseAccessToken:supabaseKey.trim()}'}).timeout(const Duration(seconds:20));
+   if(response.statusCode!=200)return;
+   final root=supabaseUrl.trim().replaceAll(RegExp(r"/+$"),"");
+   final rows=list(jsonDecode(response.body));
+   if(mounted)setState((){
+    for(final item in rows){
+     final row=map(item),id='${row['product_id']}',path='${row['image_path']}';
+     if(id.isNotEmpty&&path.isNotEmpty)onlineProductPhotos[id]='$root/storage/v1/object/public/product-images/$path';
+    }
+   });
+  }catch(_){}
+ }
  Widget settingsPage()=>ListView(children:[
+  card('Ürün Görselleri',Column(children:[Text('Taranan ürün: $productImageSyncProcessed / 948'),FilledButton.icon(onPressed:productImageSyncBusy?null:syncProductImages,icon:const Icon(Icons.image_search),label:Text(productImageSyncBusy?'Görseller aranıyor...':'948 Ürün Görselini Bul ve Yükle')),OutlinedButton(onPressed:loadProductImageUrls,child:const Text('Görselleri Yenile'))]),icon:Icons.image),
   card('Bekleyen İşlemler',Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
    const Text('Telefonda senkronizasyon bekleyen vardiya işlemlerini görüntüleyin ve tek tek silin.'),
    const SizedBox(height:10),
