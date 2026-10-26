@@ -64,7 +64,7 @@ class _OilHomeState extends State<OilHome> {
  Map<String,dynamic> get sharedData=>{'labels':labels,'orders':orders,'suppliers':suppliers,'supplierOf':supplierOf,'minimum':minimum,'discrepancies':discrepancies,'orderUnits':orderUnits,'barcodeErrors':barcodeErrors};
  @override void initState(){super.initState();load();}
  @override void dispose(){syncTimer?.cancel();sharedTimer?.cancel();super.dispose();}
- Future<void> load()async{prefs=await SharedPreferences.getInstance();supabasePassword=await secureStore.read(key:'ssoil_supabase_password')??''; if(!mounted)return;setState((){local=prefs!.getString('local')??local;cloud=prefs!.getString('cloud')??'';supabaseUrl=prefs!.getString('supabaseUrl')??'';supabaseKey=prefs!.getString('supabaseKey')??'';supabaseEmail=prefs!.getString('supabaseEmail')??'';cloudRevision=prefs!.getInt('cloudRevision')??0;token=prefs!.getString('token')??'';coffeeUrl=prefs!.getString('coffee')??'';fuelIds=prefs!.getString('fuelIds')??'';products=list(jsonDecode(prefs!.getString('products')??'[]')).map((e)=>map(e)).toList();base=map(jsonDecode(prefs!.getString('base')??'{}'));previousSales=map(jsonDecode(prefs!.getString('previousSales')??'{}'));daily=map(jsonDecode(prefs!.getString('daily')??'{}'));photos=map(jsonDecode(prefs!.getString('photos')??'{}'));suppliers=map(jsonDecode(prefs!.getString('suppliers')??'{}'));supplierOf=map(jsonDecode(prefs!.getString('supplierOf')??'{}'));minimum=map(jsonDecode(prefs!.getString('minimum')??'{}'));orders=map(jsonDecode(prefs!.getString('orders')??'{}'));labels=map(jsonDecode(prefs!.getString('labels')??'{}'));orderUnits=map(jsonDecode(prefs!.getString('orderUnits')??'{}'));discrepancies=map(jsonDecode(prefs!.getString('discrepancies')??'{}'));barcodeErrors=map(jsonDecode(prefs!.getString('barcodeErrors')??'{}'));kasaArchive=map(jsonDecode(prefs!.getString('ssoilKasaArchiveV1')??'{}'));fuelPrices=map(jsonDecode(prefs!.getString('ssoilFuelPricesV1')??'{}'));kasa=map(kasaArchive[day(selected)]);});syncRevision=prefs!.getInt('syncRevision')??0;pending=list(jsonDecode(prefs!.getString('syncPending')??'[]'));tracked=map(jsonDecode(prefs!.getString('syncTracked')??'{}'));syncTimer=Timer.periodic(const Duration(seconds:3),(_){if(followToday&&day(selected)!=day(DateTime.now())){setState((){selected=DateTime.now();kasa={};});}refreshReadOnly();fetchFuelPrices();});sharedTimer=Timer.periodic(const Duration(seconds:3),(_){if(mounted)syncShared();});syncShared();refreshReadOnly();auditKasaHistory();fetchFuelPrices();fetchHistoricalFuelStock();}
+ Future<void> load()async{prefs=await SharedPreferences.getInstance();supabasePassword=await secureStore.read(key:'ssoil_supabase_password')??''; if(!mounted)return;setState((){local=prefs!.getString('local')??local;cloud=prefs!.getString('cloud')??'';supabaseUrl=prefs!.getString('supabaseUrl')??'';supabaseKey=prefs!.getString('supabaseKey')??'';supabaseEmail=prefs!.getString('supabaseEmail')??'';cloudRevision=prefs!.getInt('cloudRevision')??0;token=prefs!.getString('token')??'';coffeeUrl=prefs!.getString('coffee')??'';fuelIds=prefs!.getString('fuelIds')??'';products=list(jsonDecode(prefs!.getString('products')??'[]')).map((e)=>map(e)).toList();base=map(jsonDecode(prefs!.getString('base')??'{}'));previousSales=map(jsonDecode(prefs!.getString('previousSales')??'{}'));daily=map(jsonDecode(prefs!.getString('daily')??'{}'));photos=map(jsonDecode(prefs!.getString('photos')??'{}'));suppliers=map(jsonDecode(prefs!.getString('suppliers')??'{}'));supplierOf=map(jsonDecode(prefs!.getString('supplierOf')??'{}'));minimum=map(jsonDecode(prefs!.getString('minimum')??'{}'));orders=map(jsonDecode(prefs!.getString('orders')??'{}'));labels=map(jsonDecode(prefs!.getString('labels')??'{}'));orderUnits=map(jsonDecode(prefs!.getString('orderUnits')??'{}'));discrepancies=map(jsonDecode(prefs!.getString('discrepancies')??'{}'));barcodeErrors=map(jsonDecode(prefs!.getString('barcodeErrors')??'{}'));kasaArchive=map(jsonDecode(prefs!.getString('ssoilKasaArchiveV1')??'{}'));fuelPrices=map(jsonDecode(prefs!.getString('ssoilFuelPricesV1')??'{}'));historicalFuelStock=map(jsonDecode(prefs!.getString('ssoilFuelStockArchiveV1')??'{}'));kasa=map(kasaArchive[day(selected)]);});syncRevision=prefs!.getInt('syncRevision')??0;pending=list(jsonDecode(prefs!.getString('syncPending')??'[]'));tracked=map(jsonDecode(prefs!.getString('syncTracked')??'{}'));syncTimer=Timer.periodic(const Duration(seconds:3),(_){if(followToday&&day(selected)!=day(DateTime.now())){setState((){selected=DateTime.now();kasa={};});}refreshReadOnly();fetchFuelPrices();});sharedTimer=Timer.periodic(const Duration(seconds:3),(_){if(mounted)syncShared();});syncShared();refreshReadOnly();auditKasaHistory();fetchFuelPrices();fetchHistoricalFuelStock();}
  Future<void> save()async{final p=prefs;if(p==null)return;for(final e in <String,dynamic>{'local':local,'cloud':cloud,'supabaseUrl':supabaseUrl,'supabaseKey':supabaseKey,'supabaseEmail':supabaseEmail,'token':token,'coffee':coffeeUrl,'fuelIds':fuelIds,'products':products,'base':base,'previousSales':previousSales,'daily':daily,'photos':photos,'suppliers':suppliers,'supplierOf':supplierOf,'minimum':minimum,'orders':orders,'labels':labels,'orderUnits':orderUnits,'discrepancies':discrepancies,'barcodeErrors':barcodeErrors}.entries){await p.setString(e.key,e.value is String?e.value:jsonEncode(e.value));}await queueSharedChanges();await secureStore.write(key:'ssoil_supabase_password',value:supabasePassword);syncShared();}
  Future<void> queueSharedChanges()async{
   for(final entry in sharedData.entries){
@@ -680,18 +680,22 @@ class _OilHomeState extends State<OilHome> {
   }catch(_){}
  }
  Future<void> fetchHistoricalFuelStock()async{
-  final date=day(selected);
-  if(date==day(DateTime.now()))return;
-  final response=await cloudRequest('GET','ssoil_fuel_daily_stock?select=fuel_id,closing_liters&stock_date=eq.$date');
-  if(response?.statusCode!=200)return;
+  final requestedDate=day(selected);
+  if(requestedDate==day(DateTime.now()))return;
   try{
-   final values=<String,dynamic>{};
-   for(final row in list(jsonDecode(response!.body))){
-    final item=map(row);
-    if(item['closing_liters']!=null)values['${item['fuel_id']}']=item['closing_liters'];
+   final response=await cloudRequest('GET','ssoil_fuel_daily_stock?select=stock_date,fuel_id,closing_liters&order=stock_date.asc');
+   if(response?.statusCode!=200)return;
+   final byDay=<String,Map<String,dynamic>>{};
+   for(final raw in list(jsonDecode(response!.body))){
+    final item=map(raw),date='${item['stock_date']}',id='${item['fuel_id']}';
+    if(!['1','2','3'].contains(id)||item['closing_liters']==null)continue;
+    byDay.putIfAbsent(date,()=>{})[id]=item['closing_liters'];
    }
-   historicalFuelStock[date]=values;
-   if(mounted&&day(selected)==date)setState((){});
+   for(final entry in byDay.entries){
+    historicalFuelStock[entry.key]={...map(historicalFuelStock[entry.key]),...entry.value};
+   }
+   await prefs?.setString('ssoilFuelStockArchiveV1',jsonEncode(historicalFuelStock));
+   if(mounted&&day(selected)==requestedDate)setState((){});
   }catch(_){}
  }
  Future<void> editPurchasePrices()async{
