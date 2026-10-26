@@ -197,6 +197,10 @@ class _ShiftPageState extends State<ShiftPage> {
   if(ok!=true)return;final value=num.tryParse(c.text.replaceAll(',','.'));if(value==null||value<0)return;
   data[field]=double.parse(value.toStringAsFixed(2));
   final exists=previous!=null;
+  if(exists&&table=='ssoil_shift_bank_opening'){
+   final row=openings.where((r)=>'${r['bank_id']}'=='${data['bank_id']}').toList();
+   if(row.isNotEmpty)filter='$filter&revision=eq.${row.first['revision']}';
+  }
   await save(exists?'PATCH':'POST',table,exists?{field:data[field]}:[data],filter:exists?filter:'');
  }
  num sum(String kind)=>transactions.where((v)=>v['kind']==kind&&v['shift_number']==shift).fold<num>(0,(a,v)=>a+(num.tryParse(v['amount'].toString())??0));
@@ -322,7 +326,7 @@ class _ShiftPageState extends State<ShiftPage> {
    filter:'?id=eq.${row['id']}&revision=eq.${row['revision']}');
  }
  num total(String kind)=>transactions.where((v)=>v['kind']==kind).fold<num>(0,(a,v)=>a+number(v['amount']));
- bool isBankDeposit(Map<String,dynamic> t)=>t['kind']=='cash_expense'&&(' ${t['first_value']??''} ${t['description']??''}').toUpperCase().contains('HESABA YATIRILAN');
+ bool isBankDeposit(Map<String,dynamic> t)=>t['kind']=='cash_expense'&&(' ${t['first_value']??''} ${t['description']??''}').toUpperCase().contains('HESABA YATIRILAN')||t['kind']=='cash_expense'&&'${t['first_value']??''}'.toUpperCase().contains('BANKA PARA YATIRMA');
  String depositBankId(Map<String,dynamic> t){
   final explicit='${t['bank_id']??''}';
   if(banks.any((b)=>'${b['id']}'==explicit))return explicit;
