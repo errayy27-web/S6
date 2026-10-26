@@ -494,6 +494,7 @@ class _OilHomeState extends State<OilHome> {
  Future<void> addPhoto(Map<String,dynamic> p,ImageSource src)async{final img=await ImagePicker().pickImage(source:src,imageQuality:70,maxWidth:1000);if(img==null)return;final dir=await getApplicationDocumentsDirectory();final f=await File(img.path).copy('${dir.path}/ssoil_${p['id']}.jpg');setState(()=>photos['${p['id']}']=f.path);await save();}
  void productDetail(Map<String, dynamic> p) {
    final id = '${p['id']}';
+   if(!photos.containsKey(id))lookupProductPhoto(p);
    showDialog<void>(
      context: context,
      barrierDismissible: true,
