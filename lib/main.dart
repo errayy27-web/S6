@@ -60,11 +60,12 @@ class _OilHomeState extends State<OilHome> {
  Map<String,dynamic> base={},previousSales={},daily={},photos={},suppliers={},supplierOf={},minimum={},orders={},labels={},orderUnits={},discrepancies={},barcodeErrors={};
  DateTime selected=DateTime.now(); bool followToday=true;
  Timer? syncTimer; Timer? sharedTimer; bool refreshingReadOnly=false; bool syncing=false; bool manualSyncing=false; String cloudError=''; String sharedSyncStatus='Henüz kontrol edilmedi'; DateTime? lastSharedSync; int syncRevision=0; List<dynamic> pending=[]; Map<String,dynamic> tracked={};
- Map<String,dynamic> kasaArchive={}, fuelPrices={}, historicalFuelStock={}; DateTime? lastHistoryAudit; bool historyAuditBusy=false;
+ Map<String,dynamic> kasaArchive={}, fuelPrices={}, historicalFuelStock={};
+ List<Map<String,dynamic>> kasaBanks=[],kasaBankTransactions=[],kasaBankOpenings=[]; String kasaBankDate=''; DateTime? lastHistoryAudit; bool historyAuditBusy=false;
  Map<String,dynamic> get sharedData=>{'labels':labels,'orders':orders,'suppliers':suppliers,'supplierOf':supplierOf,'minimum':minimum,'discrepancies':discrepancies,'orderUnits':orderUnits,'barcodeErrors':barcodeErrors};
  @override void initState(){super.initState();load();}
  @override void dispose(){syncTimer?.cancel();sharedTimer?.cancel();super.dispose();}
- Future<void> load()async{prefs=await SharedPreferences.getInstance();supabasePassword=await secureStore.read(key:'ssoil_supabase_password')??''; if(!mounted)return;setState((){local=prefs!.getString('local')??local;cloud=prefs!.getString('cloud')??'';supabaseUrl=prefs!.getString('supabaseUrl')??'';supabaseKey=prefs!.getString('supabaseKey')??'';supabaseEmail=prefs!.getString('supabaseEmail')??'';cloudRevision=prefs!.getInt('cloudRevision')??0;token=prefs!.getString('token')??'';coffeeUrl=prefs!.getString('coffee')??'';fuelIds=prefs!.getString('fuelIds')??'';products=list(jsonDecode(prefs!.getString('products')??'[]')).map((e)=>map(e)).toList();base=map(jsonDecode(prefs!.getString('base')??'{}'));previousSales=map(jsonDecode(prefs!.getString('previousSales')??'{}'));daily=map(jsonDecode(prefs!.getString('daily')??'{}'));photos=map(jsonDecode(prefs!.getString('photos')??'{}'));suppliers=map(jsonDecode(prefs!.getString('suppliers')??'{}'));supplierOf=map(jsonDecode(prefs!.getString('supplierOf')??'{}'));minimum=map(jsonDecode(prefs!.getString('minimum')??'{}'));orders=map(jsonDecode(prefs!.getString('orders')??'{}'));labels=map(jsonDecode(prefs!.getString('labels')??'{}'));orderUnits=map(jsonDecode(prefs!.getString('orderUnits')??'{}'));discrepancies=map(jsonDecode(prefs!.getString('discrepancies')??'{}'));barcodeErrors=map(jsonDecode(prefs!.getString('barcodeErrors')??'{}'));kasaArchive=map(jsonDecode(prefs!.getString('ssoilKasaArchiveV1')??'{}'));fuelPrices=map(jsonDecode(prefs!.getString('ssoilFuelPricesV1')??'{}'));historicalFuelStock=map(jsonDecode(prefs!.getString('ssoilFuelStockArchiveV1')??'{}'));kasa=map(kasaArchive[day(selected)]);});syncRevision=prefs!.getInt('syncRevision')??0;pending=list(jsonDecode(prefs!.getString('syncPending')??'[]'));tracked=map(jsonDecode(prefs!.getString('syncTracked')??'{}'));syncTimer=Timer.periodic(const Duration(seconds:3),(_){if(followToday&&day(selected)!=day(DateTime.now())){setState((){selected=DateTime.now();kasa={};});}refreshReadOnly();fetchFuelPrices();});sharedTimer=Timer.periodic(const Duration(seconds:3),(_){if(mounted)syncShared();});syncShared();refreshReadOnly();auditKasaHistory();fetchFuelPrices();fetchHistoricalFuelStock();}
+ Future<void> load()async{prefs=await SharedPreferences.getInstance();supabasePassword=await secureStore.read(key:'ssoil_supabase_password')??''; if(!mounted)return;setState((){local=prefs!.getString('local')??local;cloud=prefs!.getString('cloud')??'';supabaseUrl=prefs!.getString('supabaseUrl')??'';supabaseKey=prefs!.getString('supabaseKey')??'';supabaseEmail=prefs!.getString('supabaseEmail')??'';cloudRevision=prefs!.getInt('cloudRevision')??0;token=prefs!.getString('token')??'';coffeeUrl=prefs!.getString('coffee')??'';fuelIds=prefs!.getString('fuelIds')??'';products=list(jsonDecode(prefs!.getString('products')??'[]')).map((e)=>map(e)).toList();base=map(jsonDecode(prefs!.getString('base')??'{}'));previousSales=map(jsonDecode(prefs!.getString('previousSales')??'{}'));daily=map(jsonDecode(prefs!.getString('daily')??'{}'));photos=map(jsonDecode(prefs!.getString('photos')??'{}'));suppliers=map(jsonDecode(prefs!.getString('suppliers')??'{}'));supplierOf=map(jsonDecode(prefs!.getString('supplierOf')??'{}'));minimum=map(jsonDecode(prefs!.getString('minimum')??'{}'));orders=map(jsonDecode(prefs!.getString('orders')??'{}'));labels=map(jsonDecode(prefs!.getString('labels')??'{}'));orderUnits=map(jsonDecode(prefs!.getString('orderUnits')??'{}'));discrepancies=map(jsonDecode(prefs!.getString('discrepancies')??'{}'));barcodeErrors=map(jsonDecode(prefs!.getString('barcodeErrors')??'{}'));kasaArchive=map(jsonDecode(prefs!.getString('ssoilKasaArchiveV1')??'{}'));fuelPrices=map(jsonDecode(prefs!.getString('ssoilFuelPricesV1')??'{}'));historicalFuelStock=map(jsonDecode(prefs!.getString('ssoilFuelStockArchiveV1')??'{}'));kasa=map(kasaArchive[day(selected)]);});syncRevision=prefs!.getInt('syncRevision')??0;pending=list(jsonDecode(prefs!.getString('syncPending')??'[]'));tracked=map(jsonDecode(prefs!.getString('syncTracked')??'{}'));syncTimer=Timer.periodic(const Duration(seconds:3),(_){if(followToday&&day(selected)!=day(DateTime.now())){setState((){selected=DateTime.now();kasa={};});}refreshReadOnly();fetchFuelPrices();});sharedTimer=Timer.periodic(const Duration(seconds:3),(_){if(mounted)syncShared();});syncShared();refreshReadOnly();auditKasaHistory();fetchFuelPrices();fetchHistoricalFuelStock();fetchKasaBanks();}
  Future<void> save()async{final p=prefs;if(p==null)return;for(final e in <String,dynamic>{'local':local,'cloud':cloud,'supabaseUrl':supabaseUrl,'supabaseKey':supabaseKey,'supabaseEmail':supabaseEmail,'token':token,'coffee':coffeeUrl,'fuelIds':fuelIds,'products':products,'base':base,'previousSales':previousSales,'daily':daily,'photos':photos,'suppliers':suppliers,'supplierOf':supplierOf,'minimum':minimum,'orders':orders,'labels':labels,'orderUnits':orderUnits,'discrepancies':discrepancies,'barcodeErrors':barcodeErrors}.entries){await p.setString(e.key,e.value is String?e.value:jsonEncode(e.value));}await queueSharedChanges();await secureStore.write(key:'ssoil_supabase_password',value:supabasePassword);syncShared();}
  Future<void> queueSharedChanges()async{
   for(final entry in sharedData.entries){
@@ -286,6 +287,7 @@ class _OilHomeState extends State<OilHome> {
   // Independently poll each read-only feed so slow endpoints do not block the others.
   Future<void> refreshReadOnly() async {
     if (refreshingReadOnly || prefs == null || !mounted) return;
+    if(page==1)fetchKasaBanks();
     refreshingReadOnly = true;
     try {
       await Future.wait<void>([
@@ -746,8 +748,64 @@ class _OilHomeState extends State<OilHome> {
   final color=id=='1'?const Color(0xff1db661):id=='2'?const Color(0xffffd665):const Color(0xffd80020);
   return Padding(padding:const EdgeInsets.symmetric(vertical:7),child:Row(children:[Container(width:90,padding:const EdgeInsets.symmetric(vertical:11),decoration:BoxDecoration(color:color,borderRadius:BorderRadius.circular(8)),child:Text(fuelNames[id]!,textAlign:TextAlign.center,style:TextStyle(fontWeight:FontWeight.bold,color:id=='2'?Colors.black:Colors.white))),const SizedBox(width:12),Expanded(child:ClipRRect(borderRadius:BorderRadius.circular(8),child:LinearProgressIndicator(value:value==null?0:(value/8000).clamp(0.0,1.0),minHeight:17,backgroundColor:const Color(0xffeeeeee),valueColor:AlwaysStoppedAnimation<Color>(color)))),const SizedBox(width:12),SizedBox(width:85,child:Text(value==null?'Veri yok':'${value.toStringAsFixed(0)} L',textAlign:TextAlign.end,style:const TextStyle(fontWeight:FontWeight.bold)))]));
  }
+ bool kasaIsDeposit(Map<String,dynamic> t){
+  if(t['kind']!='cash_expense')return false;
+  final label='${t['first_value']??''} ${t['description']??''}'.toUpperCase();
+  return label.contains('HESABA YATIRILAN')||label.contains('BANKA PARA YATIRMA');
+ }
+ String kasaDepositBank(Map<String,dynamic> t){
+  final explicit='${t['bank_id']??''}';
+  if(kasaBanks.any((b)=>'${b['id']}'==explicit))return explicit;
+  final text='${t['second_value']??''} ${t['description']??''}'.toUpperCase();
+  for(final b in kasaBanks){
+   final name='${b['name']??''}'.toUpperCase().trim();
+   if(name.isNotEmpty&&text.contains(name))return '${b['id']}';
+   if(name.contains('RAFF')&&text.contains('RAFF'))return '${b['id']}';
+  }
+  return '';
+ }
+ num kasaBankSum(String kind,String id)=>kasaBankTransactions.where((t)=>t['kind']==kind&&'${t['bank_id']}'==id).fold<num>(0,(sum,t)=>sum+number(t['amount']));
+ num kasaDeposits(String id)=>kasaBankTransactions.where((t)=>kasaIsDeposit(t)&&kasaDepositBank(t)==id).fold<num>(0,(sum,t)=>sum+number(t['amount']));
+ Future<void> fetchKasaBanks()async{
+  final requested=day(selected);
+  try{
+   final results=await Future.wait([
+    cloudRequest('GET','ssoil_shift_banks?select=id,name,sort_order&deleted_at=is.null&order=sort_order.asc'),
+    cloudRequest('GET','ssoil_shift_transactions?select=kind,first_value,second_value,description,amount,bank_id&business_date=eq.$requested&deleted_at=is.null'),
+    cloudRequest('GET','ssoil_shift_bank_opening?select=bank_id,opening_balance&business_date=eq.$requested')
+   ]);
+   if(results.any((r)=>r==null||r.statusCode!=200)||!mounted||day(selected)!=requested)return;
+   final bankRows=list(jsonDecode(results[0]!.body)).map((v)=>map(v)).toList();
+   final txRows=list(jsonDecode(results[1]!.body)).map((v)=>map(v)).toList();
+   final openingRows=list(jsonDecode(results[2]!.body)).map((v)=>map(v)).toList();
+   if(mounted&&day(selected)==requested)setState((){
+    kasaBanks=bankRows;kasaBankTransactions=txRows;kasaBankOpenings=openingRows;kasaBankDate=requested;
+   });
+  }catch(_){}
+ }
+ Widget kasaBankCard()=>kasaBox('Bankalar',Icons.account_balance,[
+  if(kasaBankDate!=day(selected))const Text('Banka bilgileri yükleniyor...'),
+  if(kasaBankDate==day(selected)&&kasaBanks.isEmpty)const Text('Kayıtlı banka yok'),
+  if(kasaBankDate==day(selected))for(final bank in kasaBanks)Builder(builder:(context){
+   final id='${bank['id']}';
+   final opening=kasaBankOpenings.where((r)=>'${r['bank_id']}'==id).toList();
+   final start=opening.isEmpty?0:number(opening.first['opening_balance']);
+   final deposit=kasaDeposits(id);
+   final collection=kasaBankSum('bank_collection',id);
+   final expense=kasaBankSum('bank_expense',id);
+   return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Divider(),
+    Text('${bank['name']}',style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)),
+    kasaLine('Sabah açılış', '${money(start)} KM'),
+    kasaLine('Hesaba yatırılan','${money(deposit)} KM'),
+    kasaLine('Banka tahsilatları','${money(collection)} KM'),
+    kasaLine('Banka ödemeleri','${money(expense)} KM'),
+    kasaLine('Güncel hesap','${money(start+deposit+collection-expense)} KM',strong:true)
+   ]);
+  })
+ ]);
  Widget kasaPage()=>ListView(children:[
-  Row(children:[Expanded(child:Text('Tarih: ${day(selected)}',style:const TextStyle(fontWeight:FontWeight.bold))),IconButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:selected,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null){setState((){selected=d;followToday=day(d)==day(DateTime.now());kasa=map(kasaArchive[day(d)]);});await refreshKasa();await fetchFuelPrices();await fetchHistoricalFuelStock();}},icon:const Icon(Icons.calendar_month)),FilledButton.icon(onPressed:()async{await refreshKasa();await fetchFuelPrices();await fetchHistoricalFuelStock();},icon:const Icon(Icons.refresh),label:const Text('Güncelle'))]),
+  Row(children:[Expanded(child:Text('Tarih: ${day(selected)}',style:const TextStyle(fontWeight:FontWeight.bold))),IconButton(onPressed:()async{final d=await showDatePicker(context:context,initialDate:selected,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null){setState((){selected=d;followToday=day(d)==day(DateTime.now());kasa=map(kasaArchive[day(d)]);});await refreshKasa();await fetchFuelPrices();await fetchHistoricalFuelStock();await fetchKasaBanks();}},icon:const Icon(Icons.calendar_month)),FilledButton.icon(onPressed:()async{await refreshKasa();await fetchFuelPrices();await fetchHistoricalFuelStock();await fetchKasaBanks();},icon:const Icon(Icons.refresh),label:const Text('Güncelle'))]),
   kasaBox('Günlük Satış',Icons.payments,[
    kasaLine('Nakit Yakıt Market',kasa['cash_market']==null||kasa['cash_fuel']==null?'Veri yok':'${money(number(kasa['cash_market'])+number(kasa['cash_fuel']))} KM'),
    kasaLine('Nakit Dopuna (MTEL + AERO)',kasa['mtel_dopuna']==null||kasa['aero_dopuna']==null?'Veri yok':'${money(number(kasa['mtel_dopuna'])+number(kasa['aero_dopuna']))} KM'),
@@ -759,6 +817,7 @@ class _OilHomeState extends State<OilHome> {
    kasaLine('Yakıt',kasaAmount('fuel_sales')),kasaLine('Market',kasaAmount('market_sales')),
    kasaLine('MTEL Dopuna',kasaAmount('mtel_dopuna')),kasaLine('AERO Dopuna',kasaAmount('aero_dopuna')),
   ]),
+  kasaBankCard(),
   kasaBox('Yakıt Stokları',Icons.local_gas_station,[fuelStockRow('2'),fuelStockRow('3'),fuelStockRow('1')]),
   kasaBox('Güncel Yakıt Fiyatları',Icons.trending_up,[
    const Row(children:[Expanded(child:Text('Yakıt',style:TextStyle(fontWeight:FontWeight.bold))),Expanded(child:Text('Alış Fiyatı\n(KM/L)',textAlign:TextAlign.center,style:TextStyle(fontWeight:FontWeight.bold))),Expanded(child:Text('Satış Fiyatı\n(KM/L)',textAlign:TextAlign.end,style:TextStyle(fontWeight:FontWeight.bold)))]),
