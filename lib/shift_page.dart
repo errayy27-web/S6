@@ -53,11 +53,11 @@ class _ShiftPageState extends State<ShiftPage> {
   method=='PATCH'&&table=='ssoil_shift_transactions'&&data is Map&&data.containsKey('deleted_at');
  String removalFilter(String method,String table,Object? data,String filter){
   if(!isRemoval(method,table,data))return filter;
-  return filter.replaceFirst(RegExp(r'&revision=eq\\.[^&]+'),'');
+  return filter.replaceFirst(RegExp(r'&revision=eq\.[^&]+'),'');
  }
  Future<bool> removalConfirmed(String method,String table,Object? data,String filter)async{
   if(!isRemoval(method,table,data))return false;
-  final id=RegExp(r'id=eq\\.([^&]+)').firstMatch(filter)?.group(1);
+  final id=RegExp(r'id=eq\.([^&]+)').firstMatch(filter)?.group(1);
   if(id==null)return false;
   try{
    final rows=await fetch(table,'id=eq.$id');
